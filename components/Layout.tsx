@@ -304,11 +304,15 @@ export const Layout: React.FC = () => {
         try { setTia({ step: 'result', source, result: importTia(files, source, getOsUsername() || 'TIA Portal') }); }
         catch (err: any) { setTia(null); toast(err?.message || 'Unable to read the TIA Portal export.'); }
     };
+    const [tiaProgress, setTiaProgress] = useState<{ done?: number; total?: number; text: string }>({ text: '' });
     const tiaFromProject = async () => {
         const ipc = (window as any).amaIpc;
         if (!ipc) { toast('Reading a TIA project directly is only available in the desktop app.'); return; }
+        setTiaProgress({ text: 'Choose the TIA Portal project' });
         setTia({ step: 'busy' });
-        const res = await ipc.invoke('ama:tia-extract');
+        const off = ipc.on('ama:tia-progress', (p: any) => setTiaProgress(prev => ({ ...prev, ...p, text: p?.text ?? prev.text })));
+        let res: any;
+        try { res = await ipc.invoke('ama:tia-extract'); } finally { off(); }
         if (res?.canceled) { setTia({ step: 'choose' }); return; }
         if (!res?.ok) { setTia({ step: 'choose' }); toast(res?.error || 'The TIA Portal export failed.'); return; }
         showTia(res.files, String(res.project).split(/[\\/]/).pop() || 'TIA Portal');
@@ -659,9 +663,20 @@ export const Layout: React.FC = () => {
                         </div>
                     </div>
                 )}
-                {tia?.step === 'busy' && (
-                    <p style={{ fontSize: '0.9rem' }}>TIA Portal is opening the project and exporting it. This takes a few minutes; if TIA Portal asks whether to grant access to "TiaExtractor", answer Yes.</p>
-                )}
+                {tia?.step === 'busy' && (() => {
+                    const known = !!tiaProgress.total;
+                    const pct = known ? Math.round(100 * (tiaProgress.done || 0) / tiaProgress.total!) : 0;
+                    return (
+                        <div style={{ fontSize: '0.88rem' }}>
+                            <div className={`progress-bar ${known ? '' : 'indeterminate'}`}><div className="progress-fill" style={known ? { width: `${pct}%` } : undefined} /></div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 8 }}>
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tiaProgress.text || 'Working'}</span>
+                                <span style={{ opacity: 0.7, whiteSpace: 'nowrap' }}>{known ? `${tiaProgress.done} / ${tiaProgress.total} (${pct}%)` : ''}</span>
+                            </div>
+                            <p style={{ opacity: 0.7, marginBottom: 0 }}>TIA Portal works in the background; the project is only read. If TIA Portal asks whether to grant access to "TiaExtractor", answer Yes.</p>
+                        </div>
+                    );
+                })()}
                 {tia?.step === 'result' && (
                     <div style={{ maxHeight: '60vh', overflowY: 'auto', fontSize: '0.85rem' }}>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 14 }}>

@@ -40,7 +40,7 @@ if not defined SIEDIR (
 echo TIA Openness V%VER%: %SIEDIR%
 set "SIEMENS_ENGINEERING_DIR=%SIEDIR%"
 
-echo Building the extractor...
+echo ##STATUS Preparing the TIA Portal reader
 if exist bin rmdir /s /q bin
 if exist obj rmdir /s /q obj
 dotnet build "TiaExtractor.csproj" -c Release -v quiet -nologo "-p:SiemensEngineeringDir=%SIEDIR%"

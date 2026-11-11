@@ -1230,9 +1230,8 @@ internal static class BuilderExecutor
             // reference to a block that is not there yet), the block is simply missing.
             // So existence is verified and the missing sources are retried (up to 3
             // times), because forward references resolve once the later blocks exist.
-            // risolvono quando i blocchi successivi esistono.
             var sourceBlocks = ((List<object>)hw["sourceBlocks"]).Select(o => (Dictionary<string, object>)o).ToList();
-            var extSrcs = new Dictionary<string, ExternalSource>();
+            var extSrcs = new Dictionary<string, PlcExternalSource>();
             var srcErr = new Dictionary<string, string>();
             for (int pass = 1; pass <= 3; pass++)
             {
@@ -1246,7 +1245,7 @@ internal static class BuilderExecutor
                     var path = Path.Combine(pkg, rel.Replace('/', Path.DirectorySeparatorChar));
                     try
                     {
-                        ExternalSource old;
+                        PlcExternalSource old;
                         if (extSrcs.TryGetValue(rel, out old)) { try { old.Delete(); } catch { } extSrcs.Remove(rel); }
                         var src = plc.ExternalSourceGroup.ExternalSources.CreateFromFile(Path.GetFileName(path), path);
                         extSrcs[rel] = src;

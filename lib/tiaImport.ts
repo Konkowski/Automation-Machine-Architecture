@@ -7,7 +7,8 @@
 //
 //   program folders  -> Units / Equipment Modules / Control Modules
 //                       (Unit_*, EM_*, CM_* names decide the level)
-//   OB / FC          -> the code of the entity that owns the folder
+//   OB / FC          -> the code of the entity that owns the folder; their interface
+//                       (inputs, outputs, temporaries) -> variables "<block>.<name>"
 //   FB               -> Function Block in the library (interface + code)
 //   global DB        -> variables of its entity (every member, structs flattened)
 //   instance DB      -> one variable typed with its FB
@@ -383,8 +384,18 @@ export function importTia(files: Record<string, string>, sourceName = 'TIA Porta
             }
             const ent = b.folders.length && !holdsUnits(b.folders) ? entityFor(b.folders) : rootUnit();
             if (b.kind === 'OB' || b.kind === 'FC') {
-                const decl = declare(b.sections.filter(s => s.name !== 'Return'));
-                ent.code.push([`// ===== ${b.kind} "${b.name}"${b.number ? ` [${b.kind}${b.number}]` : ''} (${b.lang}) =====`, b.comment ? `// ${b.comment}` : '', decl, b.code].filter(Boolean).join('\n'));
+                // the interface (inputs, outputs, temporaries) becomes variables "<block>.<name>", like DB members
+                for (const s of b.sections) {
+                    if (s.name === 'Return') continue;
+                    for (const m of flatten(s.members)) {
+                        ent.e.variables.push({
+                            id: generateId(), name: `${b.name}.${m.name}`,
+                            description: [m.comment, `${b.kind} ${b.name}, ${s.name}${m.start ? `, start value ${m.start}` : ''}`].filter(Boolean).join(' · '),
+                            ...mapType(m.type), scope: SCOPE[s.name] || 'Local',
+                        } as Variable);
+                    }
+                }
+                ent.code.push([`// ===== ${b.kind} "${b.name}"${b.number ? ` [${b.kind}${b.number}]` : ''} (${b.lang}) =====`, b.comment ? `// ${b.comment}` : '', b.code].filter(Boolean).join('\n'));
                 stats.codeBlocks++; stats.networks += b.networks;
             } else if (b.kind === 'InstanceDB') {
                 stats.dbs++;

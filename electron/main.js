@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, screen, Menu } from 'electron';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
-import { execFile } from 'child_process';
+import { execFile, spawn } from 'child_process';
 import { promisify } from 'util';
 import { fileURLToPath } from 'url';
 
@@ -337,17 +337,37 @@ ipcMain.handle('ama:tia-extract', async (event) => {
         for (const f of ['Program.cs', 'TiaExtractor.csproj', 'RUN.bat']) await fs.promises.copyFile(path.join(src, f), path.join(work, f));
         const out = path.join(app.getPath('userData'), 'tia-exports', path.basename(project).replace(/\.[^.]+$/, '') + '_' + Date.now());
         await fs.promises.mkdir(out, { recursive: true });
+        // The tool prints "##STATUS text" and "##PROGRESS done total text": forwarded to the window as it runs.
         let log = '';
-        try {
+        const send = (p) => { try { if (!event.sender.isDestroyed()) event.sender.send('ama:tia-progress', p); } catch { /* window closed */ } };
+        send({ text: 'Preparing the TIA Portal reader' });
+        const code = await new Promise((resolve) => {
             // quoted by hand: project paths often contain spaces
-            const res = await execFileP('cmd.exe', ['/d', '/s', '/c', `""${path.join(work, 'RUN.bat')}" "${project}" "${out}""`],
-                { cwd: work, windowsHide: true, windowsVerbatimArguments: true, maxBuffer: 16 * 1024 * 1024, timeout: 30 * 60 * 1000 });
-            log = (res.stdout || '') + (res.stderr || '');
-        } catch (e) {
-            log = ((e && e.stdout) || '') + ((e && e.stderr) || '') || (e && e.message) || String(e);
-            const lines = log.trim().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+            const child = spawn('cmd.exe', ['/d', '/s', '/c', `""${path.join(work, 'RUN.bat')}" "${project}" "${out}""`],
+                { cwd: work, windowsHide: true, windowsVerbatimArguments: true });
+            let pending = '';
+            const onData = (buf) => {
+                pending += buf.toString();
+                const lines = pending.split(/\r?\n/);
+                pending = lines.pop() || '';
+                for (const line of lines) {
+                    log += line + '\n';
+                    const st = /^##STATUS (.*)$/.exec(line);
+                    const pr = /^##PROGRESS (\d+) (\d+) (.*)$/.exec(line);
+                    if (st) send({ text: st[1] });
+                    else if (pr) send({ done: Number(pr[1]), total: Number(pr[2]), text: pr[3] });
+                }
+            };
+            child.stdout.on('data', onData);
+            child.stderr.on('data', onData);
+            child.on('error', (e) => { log += String((e && e.message) || e); resolve(1); });
+            child.on('close', (c) => { log += pending; resolve(c); });
+        });
+        if (code !== 0) {
+            const lines = log.trim().split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('##'));
             return { ok: false, error: lines.filter(l => /ERROR|FATAL/.test(l)).join(' ') || lines.slice(-2).join(' ') || 'The TIA Portal export failed.', log, project };
         }
+        send({ text: 'Reading the exported files' });
         return { ok: true, project, dir: out, log, files: await readTree(out) };
     } catch (e) {
         return { ok: false, error: (e && e.message) || String(e), project };

@@ -59,6 +59,10 @@ internal static class Extractor
 {
     private static readonly List<string> Errors = new List<string>();
     private static int _blocks, _tagTables, _types;
+    private static int _done, _total;
+
+    // Lines starting with ## are read by AMA to draw the progress bar.
+    private static void Status(string text) { Console.WriteLine("##STATUS " + text); Console.Out.Flush(); }
 
     public static int Run(string[] args)
     {
@@ -78,10 +82,10 @@ internal static class Extractor
         if (!File.Exists(project)) { Console.Error.WriteLine("Project not found: " + project); return 1; }
         Directory.CreateDirectory(outDir);
 
-        Console.WriteLine("Starting TIA Portal (this can take a minute)...");
+        Status("Starting TIA Portal (this can take a minute)");
         using (var tia = new TiaPortal(ui ? TiaPortalMode.WithUserInterface : TiaPortalMode.WithoutUserInterface))
         {
-            Console.WriteLine("Opening " + project);
+            Status("Opening the project");
             Project prj = tia.Projects.Open(new FileInfo(project));
             try
             {
@@ -89,6 +93,15 @@ internal static class Extractor
                 devices.AddRange(prj.Devices);
                 CollectDevices(prj.DeviceGroups, devices);
                 try { devices.AddRange(prj.UngroupedDevicesGroup.Devices); } catch { }
+
+                // how much there is to export, for the progress bar
+                Status("Counting blocks, tags and data types");
+                foreach (var dev in devices)
+                    foreach (DeviceItem item in AllItems(dev.DeviceItems))
+                    {
+                        var p = PlcOf(item);
+                        if (p != null) _total += Count(p.BlockGroup) + Count(p.TagTableGroup) + Count(p.TypeGroup);
+                    }
 
                 var hw = new StringBuilder();
                 var plcNames = new List<string>();
@@ -107,13 +120,7 @@ internal static class Extractor
 
                     foreach (DeviceItem item in AllItems(dev.DeviceItems))
                     {
-                        PlcSoftware plc = null;
-                        try
-                        {
-                            var sc = ((IEngineeringServiceProvider)item).GetService<SoftwareContainer>();
-                            if (sc != null) plc = sc.Software as PlcSoftware;
-                        }
-                        catch { }
+                        PlcSoftware plc = PlcOf(item);
                         if (plc == null) continue;
                         var plcDir = Path.Combine(outDir, FileName(plc.Name));
                         Console.WriteLine("PLC " + plc.Name + " (" + dev.Name + ")");
@@ -146,6 +153,20 @@ internal static class Extractor
     }
 
     // ---- software ----
+    private static PlcSoftware PlcOf(DeviceItem item)
+    {
+        try
+        {
+            var sc = ((IEngineeringServiceProvider)item).GetService<SoftwareContainer>();
+            return sc == null ? null : sc.Software as PlcSoftware;
+        }
+        catch { return null; }
+    }
+
+    private static int Count(PlcBlockGroup g) { int n = g.Blocks.Count; foreach (PlcBlockGroup c in g.Groups) n += Count(c); return n; }
+    private static int Count(PlcTagTableGroup g) { int n = g.TagTables.Count; foreach (PlcTagTableGroup c in g.Groups) n += Count(c); return n; }
+    private static int Count(PlcTypeGroup g) { int n = g.Types.Count; foreach (PlcTypeGroup c in g.Groups) n += Count(c); return n; }
+
     private static void ExportBlocks(PlcBlockGroup group, string dir)
     {
         foreach (PlcBlock b in group.Blocks)
@@ -169,6 +190,9 @@ internal static class Extractor
 
     private static void Export(string dir, string name, Action<FileInfo> export, string kind, ref int counter)
     {
+        _done++;
+        Console.WriteLine("##PROGRESS " + _done + " " + _total + " " + kind + " " + name);
+        Console.Out.Flush();
         try
         {
             Directory.CreateDirectory(dir);

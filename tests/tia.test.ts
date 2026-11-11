@@ -119,6 +119,9 @@ test('folders become Unit / EM / CM; Area folders do not', () => {
 test('no variable is left out: DB members (structs flattened), instance DBs, memory tags', () => {
     const names = em.variables.map(v => v.name);
     for (const x of ['Data.Alm_Jam', 'Data.Raw', 'Data.Cfg.Speed', 'Data.Cfg.Wrn_Slow', 'JamTimer']) assert.ok(names.includes(x), x);
+    assert.ok(names.includes('10_Conveyor.aux'));   // FC temporaries are variables too
+    const cm = p.controlModules.find(c => c.name === 'CM_Scale')!;
+    assert.equal(cm.variables.find(v => v.name === 'Scale.Out')!.scope, 'Output');   // and FC outputs
     assert.equal(em.variables.find(v => v.name === 'Data.Raw')!.dataType, 'ARRAY OF');
     assert.equal(em.variables.find(v => v.name === 'JamTimer')!.customDataType, 'FB_Filter');
     const all = [...p.units, ...p.equipmentModules, ...p.controlModules].flatMap(e => e.variables.map(v => v.name));
@@ -141,7 +144,7 @@ test('alarms come from Bool names, with the comment as message', () => {
 test('code, function blocks and data types', () => {
     assert.ok(em.code.includes('// ===== FC "10_Conveyor" [FC1] (LAD) ====='));
     assert.ok(em.code.includes('Network 1: Motor start/stop'));
-    assert.ok(em.code.includes('VAR_TEMP\n    aux : Bool;\nEND_VAR'));
+    assert.ok(!em.code.includes('VAR_TEMP'));   // the interface is imported as variables, not as code
     const fb = p.library.find(f => f.name === 'FB_Filter')!;
     assert.deepEqual(fb.variables.map(v => `${v.name}:${v.scope}`), ['In:Input', 'Count:Local']);
     assert.ok(em.assignedFBs.includes(fb.id));
