@@ -231,6 +231,7 @@ ipcMain.handle('ama:read-folder', async (event, { dir, subdirs }) => {
     try {
         const files = {};
         try { files['codebase.json'] = await fs.promises.readFile(path.join(dir, 'codebase.json'), 'utf-8'); } catch { /* optional */ }
+        try { files['hardware.json'] = await fs.promises.readFile(path.join(dir, 'hardware.json'), 'utf-8'); } catch { /* optional */ }
         for (const sd of subdirs || []) {
             let names = [];
             try { names = await fs.promises.readdir(path.join(dir, sd)); } catch { continue; }

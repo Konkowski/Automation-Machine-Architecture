@@ -8,6 +8,8 @@ import { suggestFor, blockRisk, componentRisks, needsAttention, rpnBand } from '
 import { createEmptyBlock } from '../lib/helpers';
 import { useStore } from '../lib/store';
 import { stableStringify, buildCodebaseFiles, parseCodebaseFiles } from '../lib/codebase';
+import { mergeHardware } from '../lib/hardware';
+import { addProjectToCodebase } from '../lib/codebaseImport';
 
 let n = 0;
 const test = (name: string, fn: () => void) => {
@@ -221,6 +223,42 @@ test('reads the current layout and the older Git-export layout', () => {
     const legacy = parseCodebaseFiles({ 'physical_hierarchy/control_modules/CM_A.json': JSON.stringify(cm), 'software_library/function_blocks/FB_X.json': JSON.stringify(createEmptyBlock('FB', 'FB_X')) });
     assert.equal(legacy.recognized, 2); assert.equal(legacy.lists.library.length, 1); assert.equal(legacy.lists.controlModules.length, 1);
     assert.equal(parseCodebaseFiles({}).recognized, 0);
+});
+
+console.log('hardware in the code base');
+const dev = (hardware: string, ip: string, id: string) => ({ id, type: 'Hardware', hardware, firmware: '', quantity: 1, notes: '', ipAddress: ip, supplierCode: '' }) as any;
+test('hardware travels with the code base (hardware.json) and merging only adds', () => {
+    const plc = dev('CPU 1516', '192.168.0.1', 'h1'), drv = dev('G120 drive', '192.168.0.20', 'h2');
+    const cb = { sbom: [plc, drv], nodes: [{ id: 'n1', sbomId: 'h1', x: 0, y: 0, label: 'CPU', ip: '', type: 'Hardware', note: '' }, { id: 'n2', sbomId: 'h2', x: 200, y: 0, label: 'Drive', ip: '', type: 'Hardware', note: '' }], edges: [{ id: 'e1', source: 'n1', target: 'n2', protocol: 'PROFINET' }] };
+    const { files } = buildCodebaseFiles({ name: 'CB', version: '1.0.0', description: '', path: '' }, empty, cb);
+    const back = parseCodebaseFiles(files).hardware;
+    assert.equal(back.sbom.length, 2); assert.equal(back.nodes.length, 2); assert.equal(back.edges[0].protocol, 'PROFINET');
+    assert.equal(parseCodebaseFiles({}).hardware.sbom.length, 0);                 // a code base without hardware.json still opens
+    // a machine that already has the CPU (with another row id) and a customer-added switch
+    const machine = { sbom: [dev('CPU 1516', '192.168.0.1', 'm1'), dev('Customer switch', '192.168.0.9', 'm2')], nodes: [{ id: 'mn1', sbomId: 'm1', x: 0, y: 0, label: 'CPU', ip: '', type: 'Hardware', note: '' }], edges: [] };
+    const merged = mergeHardware(machine, back);
+    assert.equal(merged.added, 1);                                                  // only the drive is new
+    assert.equal(merged.set.sbom.length, 3);
+    assert.ok(merged.set.sbom.some(h => h.hardware === 'Customer switch'));         // customer change kept
+    const drive = merged.set.sbom.find(h => h.hardware === 'G120 drive')!;
+    assert.ok(merged.set.nodes.some(n => n.sbomId === drive.id));
+    assert.equal(merged.set.edges.length, 1);                                       // the link CPU-drive follows, on the machine's own nodes
+    assert.equal(merged.set.edges[0].source, 'mn1');
+    assert.equal(mergeHardware(merged.set, back).added, 0);                         // doing it again changes nothing
+});
+test('importing a PLC project into the code base adds blocks as Draft and the hardware, without duplicating', () => {
+    useStore.setState({ workspaceKind: 'codebase', library: [], units: [], equipmentModules: [], controlModules: [], assembly: { ...defaultAssembly, sbom: [], networkNodes: [], networkEdges: [], tree: [] } } as any);
+    const cm = { ...createEmptyBlock('CM', 'CM_Imported'), description: 'd', code: 'x', status: 'Released' } as any;
+    const project = { library: [], units: [], equipmentModules: [], controlModules: [cm],
+        assembly: { sbom: [dev('CPU 1516', '192.168.0.1', 'p1')], networkNodes: [{ id: 'pn1', sbomId: 'p1', x: 0, y: 0, label: 'CPU', ip: '', type: 'Hardware', note: '' }], networkEdges: [] } };
+    const r1 = addProjectToCodebase(project);
+    assert.equal(r1.added, 1); assert.equal(r1.hardwareAdded, 1);
+    const st = useStore.getState();
+    assert.equal(st.controlModules[0].status, 'Draft');                             // never Released by an import
+    assert.equal(st.assembly.sbom.length, 1); assert.equal(st.assembly.networkNodes!.length, 1);
+    const r2 = addProjectToCodebase(project);                                       // same project again
+    assert.equal(r2.added, 0); assert.equal(r2.skipped, 1); assert.equal(r2.hardwareAdded, 0);
+    assert.equal(useStore.getState().assembly.sbom.length, 1);
 });
 
 console.log(`\n${n} tests passed`);

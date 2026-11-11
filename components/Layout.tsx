@@ -21,8 +21,9 @@ import { registerCommands, runCommandNow, runCommandWhenReady } from '../lib/com
 import { Ribbon, Backstage } from './ribbon/Ribbon';
 import { importL5X, type L5xImportResult } from '../lib/l5xImport';
 import { importTia, type TiaImportResult } from '../lib/tiaImport';
+import { addProjectToCodebase } from '../lib/codebaseImport';
 import { ribbonTabs } from './ribbon/ribbonConfig';
-import { openCodebase, saveCodebase, linkCodebase, refreshCodebase } from '../lib/codebaseActions';
+import { openCodebase, saveCodebase, linkCodebase, refreshCodebase, hardwareFromCodebase } from '../lib/codebaseActions';
 
 
 // ─── User management (persisted locally) ────────────────────
@@ -347,18 +348,9 @@ export const Layout: React.FC = () => {
         const s = tia.result.stats;
         const p = tia.result.project;
         if (useStore.getState().workspaceKind === 'codebase') {
-            // Code base: the imported blocks are ADDED as Draft; nothing already there is replaced
-            const st = useStore.getState();
-            const add = <T extends { name: string }>(have: T[], incoming: T[]): { list: T[]; added: number } => {
-                const names = new Set(have.map(e => e.name));
-                const fresh = incoming.filter(e => !names.has(e.name));
-                return { list: [...have, ...fresh], added: fresh.length };
-            };
-            const lib = add(st.library, p.library), un = add(st.units, p.units), em = add(st.equipmentModules, p.equipmentModules), cm = add(st.controlModules, p.controlModules);
-            useStore.setState({ library: lib.list, units: un.list, equipmentModules: em.list, controlModules: cm.list, workspaceLoaded: true });
-            const added = lib.added + un.added + em.added + cm.added;
-            const total = p.library.length + p.units.length + p.equipmentModules.length + p.controlModules.length;
-            toast(`${added} block(s) from ${tia.source} added to the code base as Draft${added < total ? `; ${total - added} skipped (a block with the same name already exists)` : ''}.`, 'success');
+            // Code base: the blocks are ADDED as Draft and the hardware joins the reference hardware; nothing there is replaced
+            const r = addProjectToCodebase(p);
+            toast(`${r.added} block(s) and ${r.hardwareAdded} hardware / software row(s) from ${tia.source} added to the code base${r.skipped ? `; ${r.skipped} block(s) skipped (same name already exists)` : ''}. Save the code base to keep them.`, 'success');
             setTia(null);
             selectTab('arch');
             return;
@@ -371,6 +363,13 @@ export const Layout: React.FC = () => {
 
     const confirmImportL5X = () => {
         if (!l5x) return;
+        if (useStore.getState().workspaceKind === 'codebase') {
+            const r = addProjectToCodebase(l5x.result.project);
+            toast(`${r.added} block(s) and ${r.hardwareAdded} hardware row(s) from ${l5x.fileName} added to the code base${r.skipped ? `; ${r.skipped} block(s) skipped (same name already exists)` : ''}. Save the code base to keep them.`, 'success');
+            setL5x(null);
+            selectTab('arch');
+            return;
+        }
         loadProject(l5x.result.project);
         toast(`Project created from ${l5x.fileName}: ${l5x.result.stats.programs} programs, ${l5x.result.stats.aois} AOIs.`, 'success');
         setL5x(null);
@@ -410,6 +409,7 @@ export const Layout: React.FC = () => {
         'codebase:save-as': () => saveCodebase(true),
         'machine:link-codebase': linkCodebase,
         'machine:refresh-codebase': refreshCodebase,
+        'machine:hardware-from-codebase': hardwareFromCodebase,
         'data:import-l5x': handleImportL5X,
         'data:import-tia': () => setTia({ step: 'choose' }),
         'data:import-arch': handleImportArchitecture,
@@ -632,7 +632,7 @@ export const Layout: React.FC = () => {
                 title={`Import from Studio 5000 — ${l5x?.fileName ?? ''}`}
                 footer={<>
                     <button className="btn btn-secondary" onClick={() => setL5x(null)}>Cancel</button>
-                    <button className="btn btn-primary" onClick={confirmImportL5X}>Create project (replaces the workspace)</button>
+                    <button className="btn btn-primary" onClick={confirmImportL5X}>{workspaceKind === 'codebase' ? 'Add to the code base (blocks as Draft, hardware to the SBOM)' : 'Create project (replaces the workspace)'}</button>
                 </>}
             >
                 {l5x && (
@@ -668,7 +668,7 @@ export const Layout: React.FC = () => {
             >
                 {tia?.step === 'choose' && (
                     <div style={{ fontSize: '0.85rem' }}>
-                        <p style={{ marginTop: 0 }}>AMA reads the blocks, PLC tags, data types and hardware of a TIA Portal project and {workspaceKind === 'codebase' ? 'adds them to the code base as Draft blocks (hardware and topology belong to a machine and are not added)' : 'builds the machine from them'}. The TIA project is only read, never changed.</p>
+                        <p style={{ marginTop: 0 }}>AMA reads the blocks, PLC tags, data types and hardware of a TIA Portal project and {workspaceKind === 'codebase' ? 'adds the blocks to the code base as Draft and the hardware to its reference SBOM and topology (a machine can start from them and change them)' : 'builds the machine from them'}. The TIA project is only read, never changed.</p>
                         <div className="start-cards" style={{ gridTemplateColumns: '1fr 1fr' }}>
                             <button className="start-card" onClick={tiaFromProject}>
                                 <h3>Read a TIA project</h3>

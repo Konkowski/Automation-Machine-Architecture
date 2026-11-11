@@ -7,6 +7,7 @@ import { useStore } from '../lib/store';
 import { HardwareItem } from '../types/machine';
 import { Plus, Trash2, Cpu, HardDrive, Wifi, Server, MonitorSmartphone, Shield, Lock, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { generateId } from '../lib/helpers';
+import { newSbomItem } from '../lib/hardware';
 
 // ─── Types ──────────────────────────────────────────────────
 interface TopoNode {
@@ -412,6 +413,25 @@ export const NetworkTopology: React.FC<NetworkTopologyProps> = ({ sbom }) => {
         setNodes(next);
         persist(next, edges);
     };
+
+    // new device (SBOM row + map node) and edit of the selected one
+    const [creating, setCreating] = useState(false);
+    const [draft, setDraft] = useState({ name: '', type: 'Hardware', ip: '' });
+    const createDevice = () => {
+        if (!draft.name.trim()) return;
+        const item = newSbomItem(draft.type as any, { hardware: draft.name.trim(), ipAddress: draft.ip.trim() });
+        useStore.getState().updateAssemblySBOM([...sbom, item]);
+        addNode(item);
+        setDraft({ name: '', type: 'Hardware', ip: '' });
+        setCreating(false);
+    };
+    const selItem = selectedNodeId ? sbom.find(i => i.id === nodes.find(n => n.id === selectedNodeId)?.sbomId) : undefined;
+    const patchItem = (u: Partial<HardwareItem>) => {
+        if (selItem) useStore.getState().updateAssemblySBOM(sbom.map(i => i.id === selItem.id ? { ...i, ...u } : i));
+    };
+    const fieldStyle: React.CSSProperties = { fontSize: 12, padding: '5px 7px', background: '#1e293b', border: '1px solid #475569', color: '#f8fafc', borderRadius: 4, minWidth: 0, width: '100%' };
+    const btnStyle: React.CSSProperties = { flex: 1, fontSize: 11, fontWeight: 600, padding: '6px 8px', background: '#334155', border: 'none', color: '#f8fafc', borderRadius: 4, cursor: 'pointer' };
+    const panelBox: React.CSSProperties = { background: 'rgba(15,23,42,0.6)', border: '1px solid rgba(14,165,233,0.25)', borderRadius: 6, padding: 10 };
 
     const removeNode = (nodeId: string) => {
         const nextNodes = nodes.filter(n => n.id !== nodeId);
@@ -1075,10 +1095,47 @@ export const NetworkTopology: React.FC<NetworkTopologyProps> = ({ sbom }) => {
                 </div>
 
                 <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {/* New device: creates the SBOM row and puts it on the map in one step */}
+                    {creating ? (
+                        <div style={{ ...panelBox, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            <input autoFocus style={fieldStyle} placeholder="Name / model (e.g. Siemens G120 drive)" value={draft.name}
+                                onChange={e => setDraft({ ...draft, name: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') createDevice(); }} />
+                            <div style={{ display: 'flex', gap: 6 }}>
+                                <select style={{ ...fieldStyle, flex: 1 }} value={draft.type} onChange={e => setDraft({ ...draft, type: e.target.value })}>
+                                    {['Hardware', 'Software', 'Network', 'Service', 'Security'].map(t => <option key={t} value={t}>{t}</option>)}
+                                </select>
+                                <input style={{ ...fieldStyle, flex: 1 }} placeholder="IP" value={draft.ip} onChange={e => setDraft({ ...draft, ip: e.target.value })} />
+                            </div>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                                <button style={{ ...btnStyle, background: '#0ea5e9', color: '#0b1220' }} disabled={!draft.name.trim()} onClick={createDevice}>Add to map and SBOM</button>
+                                <button style={btnStyle} onClick={() => setCreating(false)}>Cancel</button>
+                            </div>
+                        </div>
+                    ) : (
+                        <button style={{ ...btnStyle, flex: '0 0 auto', background: '#0ea5e9', color: '#0b1220' }} onClick={() => setCreating(true)}>+ New hardware / software</button>
+                    )}
+
+                    {/* The selected device: edit it here, the SBOM follows */}
+                    {selItem && (
+                        <div style={{ ...panelBox, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Selected device</div>
+                            <input key={`n-${selItem.id}`} style={fieldStyle} defaultValue={selItem.hardware} placeholder="Name / model"
+                                onBlur={e => selItem.sourcePartId
+                                    ? useStore.getState().overrideSbomRow(selItem.id, { ...(selItem.overrides || {}), hardware: e.target.value })
+                                    : patchItem({ hardware: e.target.value })} />
+                            <div style={{ display: 'flex', gap: 6 }}>
+                                <input key={`i-${selItem.id}`} style={{ ...fieldStyle, flex: 1 }} defaultValue={selItem.ipAddress || ''} placeholder="IP" onBlur={e => patchItem({ ipAddress: e.target.value })} />
+                                <input key={`f-${selItem.id}`} style={{ ...fieldStyle, flex: 1 }} defaultValue={selItem.firmware || ''} placeholder="Version / FW" onBlur={e => patchItem({ firmware: e.target.value })} />
+                            </div>
+                            <input key={`t-${selItem.id}`} style={fieldStyle} defaultValue={selItem.notes || ''} placeholder="Notes" onBlur={e => patchItem({ notes: e.target.value })} />
+                            <div style={{ fontSize: 9, color: '#64748b' }}>Remove it from the map with the red ✕ on the device; its SBOM row stays.</div>
+                        </div>
+                    )}
+
                     {availableItems.length === 0 ? (
                         <div style={{ fontSize: '12px', color: '#475569', textAlign: 'center', padding: '24px 8px' }}>
                             {sbom.length === 0
-                                ? 'No SBOM items. Enable the SBOM and add devices.'
+                                ? 'No devices yet: create one above or add rows in the SBOM.'
                                 : 'All devices are already on the map.'
                             }
                         </div>

@@ -3,7 +3,7 @@
 //
 // Two workspaces, two workflows:
 //
-//   Code base (product owner):  1 Code base → 2 Architecture → 3 Risk → 4 Release
+//   Code base (product owner):  1 Code base → 2 Architecture → 3 Hardware → 4 Risk → 5 Release
 //   Machine (assembler):        1 Machine → 2 Assembly → 3 Analysis → 4 Verify and export
 //
 // Rule: the ribbon holds the ACTIONS of a step, the page holds the
@@ -94,6 +94,10 @@ export const MACHINE_TABS: RibbonTab[] = [
                 ],
             },
             {
+                label: 'Hardware',
+                cmds: [{ id: 'machine:hardware-from-codebase', label: 'From code base', icon: Download, tip: 'Add the hardware and software the linked code base lists and this machine does not have yet (nothing of yours is removed)' }],
+            },
+            {
                 label: 'Blocks',
                 cmds: [{ id: 'nav:/', label: 'Adjust blocks', icon: Settings2, tip: 'Edit the code, alarms and components of this machine\'s blocks (kept as adjustments to the code base)' }],
             },
@@ -135,22 +139,38 @@ export const CODEBASE_TABS: RibbonTab[] = [
             },
             {
                 label: 'Import from the PLC',
-                cmds: [{ id: 'data:import-tia', label: 'TIA Portal', icon: Download, tip: 'Add the blocks of a TIA Portal project to the code base' }],
+                cmds: [
+                    { id: 'data:import-tia', label: 'TIA Portal', icon: Download, tip: 'Add the blocks and the hardware of a TIA Portal project to the code base' },
+                    { id: 'data:import-l5x', label: 'Studio 5000 (.L5X)', icon: Download, tip: 'Add the blocks and the hardware of an .L5X file to the code base' },
+                ],
             },
         ],
     },
     {
-        id: 'arch', step: 2, label: 'Architecture', route: '/', next: 'risk',
+        id: 'arch', step: 2, label: 'Architecture', route: '/', next: 'hw',
         hint: 'Build the reusable blocks: pick the level (UN, EM, CM, FB) on the left and press New. Then fill in the card on the right: code, variables, alarms, components and DFMEA.',
         groups: [FIND],
     },
     {
-        id: 'risk', step: 3, label: 'Risk', route: '/risk', next: 'release',
+        id: 'hw', step: 3, label: 'Hardware', route: '/hardware', next: 'risk',
+        hint: 'The standard hardware and software of this code base (SBOM) and its network topology. Import them from a PLC project or add them by hand: a machine starts from this and can change it.',
+        groups: [
+            {
+                label: 'Import from the PLC',
+                cmds: [
+                    { id: 'data:import-tia', label: 'TIA Portal', icon: Download, tip: 'Add the blocks and the hardware of a TIA Portal project to the code base' },
+                    { id: 'data:import-l5x', label: 'Studio 5000 (.L5X)', icon: Download, tip: 'Add the blocks and the hardware of an .L5X file to the code base' },
+                ],
+            },
+        ],
+    },
+    {
+        id: 'risk', step: 4, label: 'Risk', route: '/risk', next: 'release',
         hint: 'See where the DFMEA says the code base needs attention: blocks, components, and what to do about each failure.',
         groups: [],
     },
     {
-        id: 'release', step: 4, label: 'Release', route: '/release',
+        id: 'release', step: 5, label: 'Release', route: '/release',
         hint: 'Review the blocks and release the stable ones: only Released blocks can be used by a machine. Then commit the code base.',
         groups: [],
     },
@@ -176,7 +196,8 @@ export const backstageItems = (kind: WorkspaceKind): BackstageItem[] =>
             { id: 'codebase:open', label: 'Open code base', icon: FolderOpen, desc: 'Opens a code base folder (a Git repository).' },
             { id: 'codebase:save', label: 'Save code base', icon: Save, desc: 'Writes the code base to its folder.' },
             { id: 'codebase:save-as', label: 'Save code base to…', icon: SaveAll, desc: 'Writes the code base to another folder.' },
-            { id: 'data:import-tia', label: 'Import from TIA Portal', icon: Download, desc: 'Adds the blocks of a TIA Portal project to the code base.' },
+            { id: 'data:import-tia', label: 'Import from TIA Portal', icon: Download, desc: 'Adds the blocks and the hardware of a TIA Portal project to the code base.' },
+            { id: 'data:import-l5x', label: 'Import from Studio 5000', icon: Download, desc: 'Adds the blocks and the hardware of an .L5X file to the code base.' },
             { id: 'file:clear', label: 'Clear workspace', icon: Eraser, desc: 'Deletes all unsaved content of this workspace.', sep: true },
             { id: 'settings:users', label: 'Users', icon: Users, desc: 'Management of the users who sign the changes.' },
             ...ADVANCED_ITEMS,

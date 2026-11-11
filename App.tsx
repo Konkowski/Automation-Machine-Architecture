@@ -16,6 +16,7 @@ import { ProjectPage } from './pages/ProjectPage';
 import { CodebasePage } from './pages/CodebasePage';
 import { ReleasePage } from './pages/ReleasePage';
 import { RiskPage } from './pages/RiskPage';
+import { HardwarePage } from './pages/HardwarePage';
 import { useStore } from './lib/store';
 
 // Step 1 is a different page in each workspace
@@ -38,6 +39,7 @@ const App: React.FC = () => {
           <Route element={<Layout />}>
             <Route path="/project" element={<ProjectRoute />} />
             <Route path="/" element={<ArchitectureRoute />} />
+            <Route path="/hardware" element={<HardwarePage />} />
             <Route path="/risk" element={<RiskPage />} />
             <Route path="/release" element={<ReleasePage />} />
             <Route path="/assembly" element={<AssemblyPage />} />

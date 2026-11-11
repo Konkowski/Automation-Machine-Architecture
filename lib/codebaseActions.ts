@@ -11,6 +11,7 @@ import {
 } from './codebase';
 import { setGitDir, gitStateOf } from './gitOps';
 import { mergeFromCodebase } from './deviation';
+import { mergeHardware } from './hardware';
 import { toast } from '../components/Toaster';
 
 const listsOfState = (): EntityLists => {
@@ -30,7 +31,8 @@ export async function openCodebase(): Promise<void> {
         if (st.workspaceKind !== 'codebase') st.switchWorkspaceKind('codebase');
         useStore.setState({
             ...parsed.lists,
-            assembly: emptyAssembly(parsed.info.name, parsed.info.description),
+            // in the Code base workspace the assembly object only carries the reference hardware (SBOM + topology)
+            assembly: { ...emptyAssembly(parsed.info.name, parsed.info.description), sbom: parsed.hardware.sbom, networkNodes: parsed.hardware.nodes, networkEdges: parsed.hardware.edges },
             codebase: { ...parsed.info, path },
             projectFilePath: null,
             workspaceLoaded: true,
@@ -56,7 +58,8 @@ export async function saveCodebase(asNew = false): Promise<void> {
         if (!dir) dir = await pickCodebaseFolderForSave();
         if (!dir) return;
         info = { ...info, path: dir };
-        const n = await writeCodebaseFolder(dir, info, listsOfState());
+        const a = st.assembly;
+        const n = await writeCodebaseFolder(dir, info, listsOfState(), { sbom: a.sbom || [], nodes: a.networkNodes || [], edges: a.networkEdges || [] });
         useStore.setState({ codebase: info });
         setGitDir(dir);
         toast(`Code base saved: ${n} files in ${dir}`, 'success');
@@ -70,9 +73,13 @@ const countMissingRefs = (tree: AssemblyNode[], ids: Set<string>): number =>
 async function applyCodebaseToMachine(path: string, parsed: ParsedCodebase, verb: string): Promise<void> {
     // Nothing the machine already has is deleted: adjusted blocks and the machine's own blocks stay.
     const { lists, summary } = mergeFromCodebase(listsOfState(), parsed.lists);
+    // hardware: only what the machine does not have yet is added (customer changes are never overwritten)
+    const a0 = useStore.getState().assembly;
+    const hw = mergeHardware({ sbom: a0.sbom || [], nodes: a0.networkNodes || [], edges: a0.networkEdges || [] }, parsed.hardware);
     const msg = [
         `${verb} code base "${parsed.info.name}" v${parsed.info.version}?`,
         '',
+        `${hw.added} hardware / software row(s) added to the SBOM`,
         `${summary.added} new block(s) from the code base`,
         `${summary.updated} updated (not adjusted on this machine)`,
         `${summary.keptAdjusted} kept as you adjusted them${summary.adjustedNewer ? ` (${summary.adjustedNewer} also changed in the code base: review them)` : ''}`,
@@ -82,8 +89,10 @@ async function applyCodebaseToMachine(path: string, parsed: ParsedCodebase, verb
     ].join('\n');
     if (!confirm(msg)) return;
     const git = await gitStateOf(path);   // which exact commit the machine is taking
+    const a1 = useStore.getState().assembly;
     useStore.setState({
         ...lists,
+        assembly: { ...a1, sbom: hw.set.sbom, networkNodes: hw.set.nodes, networkEdges: hw.set.edges },
         codebase: { ...parsed.info, path, syncedAt: new Date().toISOString(), commit: git.commit, dirty: git.dirty },
         selectedNodeId: null,
     });
@@ -97,6 +106,20 @@ export async function linkCodebase(): Promise<void> {
         if (!res) return;
         if (res.parsed.errors.length) toast(`${res.parsed.errors.length} file(s) of the code base were skipped.`, 'info');
         await applyCodebaseToMachine(res.path, res.parsed, 'Link');
+    } catch (e) { fail(e); }
+}
+
+/** Machine workspace: bring the code base's reference hardware (SBOM + topology) into this machine. Adds only; deletes nothing. */
+export async function hardwareFromCodebase(): Promise<void> {
+    const cb = useStore.getState().codebase;
+    if (!cb?.path) { toast('Link a code base first: its hardware comes from there.'); return; }
+    try {
+        const parsed = await readCodebaseFolder(cb.path);
+        const a = useStore.getState().assembly;
+        const hw = mergeHardware({ sbom: a.sbom || [], nodes: a.networkNodes || [], edges: a.networkEdges || [] }, parsed.hardware);
+        if (parsed.hardware.sbom.length === 0) { toast('The code base has no hardware yet (Code base → Hardware).', 'info'); return; }
+        useStore.setState({ assembly: { ...a, sbom: hw.set.sbom, networkNodes: hw.set.nodes, networkEdges: hw.set.edges } });
+        toast(hw.added ? `${hw.added} hardware / software row(s) added from the code base. Yours were kept.` : 'This machine already has everything the code base lists.', 'success');
     } catch (e) { fail(e); }
 }
 

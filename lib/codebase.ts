@@ -19,6 +19,7 @@
 import type { BlockBase, CodebaseInfo, EntityLevel, FunctionBlock, Unit, EquipmentModule, ControlModule } from '../types/machine';
 import { safeFileName } from './helpers';
 import { normalizeEntityListsOnly } from './normalize';
+import { emptyHardware, hardwareFile, parseHardware, type HardwareSet } from './hardware';
 
 export const CODEBASE_FORMAT = 1;
 
@@ -64,12 +65,14 @@ const allEntities = (l: EntityLists): BlockBase[] =>
     [...l.units, ...l.equipmentModules, ...l.controlModules, ...l.library];
 
 /** The files of a code base, plus the folders whose stale files must be cleaned first. */
-export function buildCodebaseFiles(info: CodebaseInfo, lists: EntityLists): { files: Record<string, string>; cleanDirs: string[] } {
+export function buildCodebaseFiles(info: CodebaseInfo, lists: EntityLists, hardware: HardwareSet = emptyHardware()): { files: Record<string, string>; cleanDirs: string[] } {
     const files: Record<string, string> = {};
     files['codebase.json'] = stableStringify({
         kind: 'codebase', format: CODEBASE_FORMAT,
         name: info.name, version: info.version, description: info.description,
     });
+    // reference hardware: SBOM + network topology, the starting point of a machine
+    files['hardware.json'] = stableStringify(hardwareFile(hardware));
     const used = new Set<string>();
     for (const e of allEntities(lists)) {
         const dir = CODEBASE_DIRS[e.level];
@@ -84,6 +87,8 @@ export function buildCodebaseFiles(info: CodebaseInfo, lists: EntityLists): { fi
 export interface ParsedCodebase {
     info: Omit<CodebaseInfo, 'path'>;
     lists: EntityLists;
+    /** Reference hardware (hardware.json): SBOM rows and network topology. */
+    hardware: HardwareSet;
     errors: string[];
     /** How many block files were found (0 = the folder has no code base in it). */
     recognized: number;
@@ -113,6 +118,7 @@ export function parseCodebaseFiles(files: Record<string, string>): ParsedCodebas
             description: String(meta.description || ''),
         },
         lists: normalizeEntityListsOnly(raw) as EntityLists,
+        hardware: parseHardware(files['hardware.json']),
         errors,
         recognized,
     };
@@ -135,10 +141,10 @@ export async function readCodebaseFolder(dir: string): Promise<ParsedCodebase> {
     return parseCodebaseFiles(res.files);
 }
 
-export async function writeCodebaseFolder(dir: string, info: CodebaseInfo, lists: EntityLists): Promise<number> {
+export async function writeCodebaseFolder(dir: string, info: CodebaseInfo, lists: EntityLists, hardware?: HardwareSet): Promise<number> {
     const r = ipc();
     if (!r) throw new Error('Only available in the desktop app.');
-    const { files, cleanDirs } = buildCodebaseFiles(info, lists);
+    const { files, cleanDirs } = buildCodebaseFiles(info, lists, hardware);
     const res = await r.invoke('ama:write-folder', { dir, files, cleanDirs });
     if (!res?.ok) throw new Error(res?.error || 'Unable to write the folder.');
     return res.count;
