@@ -4,6 +4,7 @@
 // Like the Studio 5000 L5X card, but for Siemens: generates a
 // self-contained, deterministic TEXT package that builds the TIA
 // project on the engineering PC (TIA has no single import file
+import { hasTiaOrigin, buildTiaRebuildPackage } from './tiaRebuild';
 // covering hardware + code, and Openness can only run where TIA
 // Portal is installed):
 //
@@ -138,6 +139,8 @@ function idbSource(fbName: string): string {
 
 // ─── the package ────────────────────────────────────────────
 export function buildTiaPackage(assembly: AssemblyProject, db: EntityDB): FileMap {
+    // blocks imported from TIA Portal go back as the original objects, not as generated code
+    if (hasTiaOrigin(assembly, db)) return buildTiaRebuildPackage(assembly, db);
     const m = buildModel(assembly, db);
     const sbom = sortedSbom(m);
     const devices: Dev[] = computeDevices(m, sbom);

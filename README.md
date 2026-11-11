@@ -44,7 +44,7 @@ AMA has two workspaces:
 It can also **import existing PLC projects** into a machine:
 
 - **Studio 5000**: an `.L5X` file.
-- **TIA Portal**: pick the project file and AMA reads it through TIA Openness (read-only): blocks, PLC tags, data types, I/O, alarms and hardware. LAD/FBD networks are converted to Structured Text so the logic stays readable. Needs TIA Portal with the Openness option and the .NET SDK on the PC. The extractor is in [`tools/tia-extractor`](tools/tia-extractor) and can also be run on its own.
+- **TIA Portal**: pick the project file and AMA reads it through TIA Openness (read-only): blocks, PLC tags, data types, I/O, alarms and hardware. LAD/FBD networks are converted to Structured Text so the logic stays readable. Needs TIA Portal with the Openness option and the .NET SDK on the PC. The extractor is in [`tools/tia-extractor`](tools/tia-extractor) and can also be run on its own. Blocks imported from TIA Portal keep their original objects: when a machine assembled from them is exported, they go back to TIA Portal as they were (LAD/FBD/SCL), together with what they depend on ([`tools/tia-rebuilder`](tools/tia-rebuilder)). The same import is available in the Code base workspace, where it adds the blocks as Draft.
 
 The workflow is four steps: **Machine → Assembly → Analysis → Verify and export**.
 

@@ -79,6 +79,9 @@ export const CodebasePage: React.FC = () => {
                     <button className="btn btn-secondary btn-sm" onClick={() => runCommandWhenReady('codebase:open')}>
                         <FolderOpen size={13} /> Open a code base folder…
                     </button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => runCommandWhenReady('data:import-tia')}>
+                        Import blocks from TIA Portal…
+                    </button>
                     <button className="btn btn-primary btn-sm"
                         disabled={!dirty || !name.trim()}
                         onClick={() => setCodebase({ ...info, name: name.trim(), version: version.trim() || '1.0.0', description: desc })}

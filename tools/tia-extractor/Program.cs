@@ -7,6 +7,8 @@
 //   <out>/<plc>/blocks/<folders>/<n>.xml   OB / FB / FC / DB (SimaticML)
 //   <out>/<plc>/tags/<folders>/<n>.xml     PLC tag tables
 //   <out>/<plc>/types/<folders>/<n>.xml    PLC data types (UDT)
+//   <out>/<plc>/system/<n>.xml             instance DBs of timers, counters and instructions (System blocks)
+//   <out>/<plc>/technology/<n>.xml         technology objects (counters, axes...)
 //
 // Usage: TiaExtractor.exe --project <file.apXX> --out <folder> [--ui]
 // ============================================================
@@ -22,6 +24,7 @@ using Siemens.Engineering.HW.Features;
 using Siemens.Engineering.SW;
 using Siemens.Engineering.SW.Blocks;
 using Siemens.Engineering.SW.Tags;
+using Siemens.Engineering.SW.TechnologicalObjects;
 using Siemens.Engineering.SW.Types;
 
 internal static class Program
@@ -100,7 +103,7 @@ internal static class Extractor
                     foreach (DeviceItem item in AllItems(dev.DeviceItems))
                     {
                         var p = PlcOf(item);
-                        if (p != null) _total += Count(p.BlockGroup) + Count(p.TagTableGroup) + Count(p.TypeGroup);
+                        if (p != null) _total += Count(p.BlockGroup) + Count(p.TagTableGroup) + Count(p.TypeGroup) + CountSystem(p) + CountTech(p);
                     }
 
                 var hw = new StringBuilder();
@@ -128,6 +131,8 @@ internal static class Extractor
                         ExportBlocks(plc.BlockGroup, Path.Combine(plcDir, "blocks"));
                         ExportTagTables(plc.TagTableGroup, Path.Combine(plcDir, "tags"));
                         ExportTypes(plc.TypeGroup, Path.Combine(plcDir, "types"));
+                        ExportSystem(plc, Path.Combine(plcDir, "system"));
+                        ExportTech(plc, Path.Combine(plcDir, "technology"));
                     }
                 }
                 hw.Append("\n  ]\n}\n");
@@ -179,6 +184,60 @@ internal static class Extractor
         foreach (PlcTagTable t in group.TagTables)
             Export(dir, t.Name, f => t.Export(f, ExportOptions.WithDefaults), "tag table", ref _tagTables);
         foreach (PlcTagTableGroup g in group.Groups) ExportTagTables(g, Path.Combine(dir, FileName(g.Name)));
+    }
+
+    // System blocks hold the instance DBs TIA creates for timers, counters and instructions.
+    // Siemens' own system FBs in there cannot be exported: that is normal and not reported.
+    private static IEnumerable<PlcBlock> SystemBlocks(PlcSoftware plc)
+    {
+        var list = new List<PlcBlock>();
+        try { foreach (PlcSystemBlockGroup g in plc.BlockGroup.SystemBlockGroups) Collect(g, list); } catch { }
+        return list;
+    }
+    private static void Collect(PlcSystemBlockGroup g, List<PlcBlock> into)
+    {
+        foreach (PlcBlock b in g.Blocks) into.Add(b);
+        foreach (PlcSystemBlockGroup c in g.Groups) Collect(c, into);
+    }
+    private static int CountSystem(PlcSoftware plc) { return SystemBlocks(plc).Count(); }
+
+    private static void ExportSystem(PlcSoftware plc, string dir)
+    {
+        foreach (var b in SystemBlocks(plc))
+        {
+            _done++;
+            Console.WriteLine("##PROGRESS " + _done + " " + _total + " system block " + b.Name);
+            Console.Out.Flush();
+            if (!(b is DataBlock)) continue;   // only the data blocks are ours to carry over
+            try
+            {
+                Directory.CreateDirectory(dir);
+                var file = new FileInfo(Path.Combine(dir, FileName(b.Name) + ".xml"));
+                if (file.Exists) file.Delete();
+                b.Export(file, ExportOptions.WithDefaults);
+                _blocks++;
+            }
+            catch { }
+        }
+    }
+
+    private static IEnumerable<TechnologicalInstanceDB> TechObjects(PlcSoftware plc)
+    {
+        var list = new List<TechnologicalInstanceDB>();
+        try { CollectTech(plc.TechnologicalObjectGroup, list); } catch { }
+        return list;
+    }
+    private static void CollectTech(TechnologicalInstanceDBGroup g, List<TechnologicalInstanceDB> into)
+    {
+        foreach (TechnologicalInstanceDB t in g.TechnologicalObjects) into.Add(t);
+        try { foreach (TechnologicalInstanceDBGroup c in g.Groups) CollectTech(c, into); } catch { }
+    }
+    private static int CountTech(PlcSoftware plc) { return TechObjects(plc).Count(); }
+
+    private static void ExportTech(PlcSoftware plc, string dir)
+    {
+        foreach (var t in TechObjects(plc))
+            Export(dir, t.Name, f => t.Export(f, ExportOptions.WithDefaults), "technology object", ref _blocks);
     }
 
     private static void ExportTypes(PlcTypeGroup group, string dir)

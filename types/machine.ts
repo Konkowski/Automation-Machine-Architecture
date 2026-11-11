@@ -35,6 +35,8 @@ export interface HardwareItem {
   unit?: string;
   sourcePartId?: string;   // BomPart id: row is derived from Architecture
   sourceEntity?: string;   // which assembled entities require it (display)
+  /** Imported from TIA Portal: the station exactly as it was (type identifiers, modules, addresses, IP). */
+  tia?: any;
   /** Machine-specific changes to a row derived from the code base (customer requests). */
   overrides?: HardwareOverrides;
 }
@@ -158,6 +160,20 @@ export type EntityPatch = Partial<BlockBase> & Partial<{
   devTimes: DevTimes;
 }>;
 
+// --- Imported from TIA Portal: the original objects travel with the block ---
+/** One TIA object (OB / FC / FB / DB or PLC data type) exactly as TIA exported it (SimaticML). */
+export interface TiaObject {
+  kind: 'block' | 'type' | 'technology';   // technology = technology object (counter, axis...)
+  blockKind?: string;      // OB | FC | FB | GlobalDB | InstanceDB | ArrayDB
+  name: string;
+  folders: string[];       // program folder path in TIA
+  system?: boolean;        // lived in "System blocks" (instance DB of a timer, counter or instruction)
+  xml: string;
+}
+/** A PLC tag exactly as it was in TIA (the type is not reduced to the AMA data types). */
+export interface TiaTag { name: string; type: string; address: string; comment: string; table: string }
+export interface TiaOrigin { plc: string; version: string; objects: TiaObject[]; tags: TiaTag[] }
+
 // --- Core Entity (shared base for UN, EM, CM, FB) ---
 export interface BlockBase {
   id: string;
@@ -180,6 +196,8 @@ export interface BlockBase {
   baseline?: string;
   hardware?: string;
   bom?: BomPart[];        // hardware parts of one instance (UN/EM/CM)
+  /** Imported from TIA Portal: its original objects and tags, re-imported as they are on export. */
+  tia?: TiaOrigin;
 }
 
 // --- Architecture Database Entities (flat, independent) ---

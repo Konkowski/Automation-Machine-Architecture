@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { parseXml, find, renderScl, renderFlgNet } from '../lib/tiaXml';
 import { importTia } from '../lib/tiaImport';
+import { buildTiaPackage } from '../lib/tiaExport';
 
 let n = 0;
 const test = (name: string, fn: () => void) => {
@@ -79,6 +80,7 @@ const FILES: Record<string, string> = {
     'plc/blocks/Area_A/Unit_Line/EM_Conveyor/CM_Scale/Scale.xml': block('FC', 'Scale', 'SCL', '<Section Name="Output"><Member Name="Out" Datatype="Real" /></Section>', unit('SCL', SCL, '')),
     'plc/blocks/Lib/FB_Filter.xml': block('FB', 'FB_Filter', 'SCL', '<Section Name="Input"><Member Name="In" Datatype="Bool" /></Section><Section Name="Static"><Member Name="Count" Datatype="Int" /></Section>', unit('SCL', SCL, '')),
     'plc/blocks/Area_A/Unit_Line/EM_Conveyor/JamTimer.xml': block('InstanceDB', 'JamTimer', 'DB', '', '', '<InstanceOfName>FB_Filter</InstanceOfName>'),
+    'plc/system/SpareTimer.xml': block('InstanceDB', 'SpareTimer', 'DB', '', '', '<InstanceOfName>TON_TIME</InstanceOfName>'),
     'plc/tags/IO.xml': doc(`<SW.Tags.PlcTagTable ID="0"><AttributeList><Name>IO</Name></AttributeList><ObjectList>
         ${['Start|Bool|%I0.0|Start button', 'Stop|Bool|%I0.1|', 'Motor|Bool|%Q0.0|Conveyor motor', 'Level|Int|%IW10|Tank level', 'Spare|Bool|%I5.0|', 'Flt_Drive|Bool|%M10.0|Drive fault'].map((t, i) => {
         const [name, type, addr, c] = t.split('|');
@@ -159,6 +161,44 @@ test('hardware: SBOM rows, grouped modules and topology', () => {
 });
 test('a folder with no TIA export is refused with a clear message', () => {
     assert.throws(() => importTia({ 'readme.json': '{}' }), /No TIA Portal export/);
+});
+
+console.log('TIA: exporting imported blocks back');
+test('instance DBs from System blocks are kept and exported too', () => {
+    const root = p.units.find(u => u.name === 'UN_DemoLine')!;
+    const o = root.tia!.objects.find(x => x.name === 'SpareTimer')!;
+    assert.equal(o.system, true); assert.equal(o.blockKind, 'InstanceDB');
+    assert.ok(root.variables.some(v => v.name === 'SpareTimer' && v.customDataType === 'TON_TIME'));
+    assert.ok(JSON.parse(buildTiaPackage(p.assembly, p as any)['rebuild.json']).imports.some((i: any) => i.name === 'SpareTimer' && i.folder === ''));
+});
+test('each block keeps its original TIA objects and tags', () => {
+    assert.deepEqual(em.tia!.objects.map(o => `${o.blockKind}:${o.name}`).sort(), ['FC:10_Conveyor', 'GlobalDB:Data', 'InstanceDB:JamTimer']);
+    assert.ok(em.tia!.objects[0].xml.includes('<SW.Blocks.'));
+    assert.deepEqual(em.tia!.tags.map(t => `${t.name}:${t.type}:${t.address}`).sort(), ['Motor:Bool:%Q0.0', 'Start:Bool:%I0.0', 'Stop:Bool:%I0.1']);
+    assert.equal(p.library.find(f => f.name === 'typ_Recipe')!.tia!.objects[0].kind, 'type');
+    assert.equal(p.assembly.sbom.find(x => x.ipAddress === '192.168.0.1')!.tia.name, 'PLC_1');
+});
+test('the package holds the original objects, in an importable order, with tags and stations', () => {
+    const pkg = buildTiaPackage(p.assembly, p as any);
+    const rb = JSON.parse(pkg['rebuild.json']);
+    const names = rb.imports.map((i: any) => i.name);
+    for (const x of ['Main', '10_Conveyor', 'Data', 'Scale', 'FB_Filter', 'JamTimer']) assert.ok(names.includes(x), x);
+    const at = (x: string) => names.indexOf(x);
+    assert.ok(at('Data') < at('FB_Filter') && at('FB_Filter') < at('10_Conveyor') && at('10_Conveyor') < at('JamTimer') && at('JamTimer') < at('Main'));
+    assert.equal(rb.imports.find((i: any) => i.name === 'Scale').folder, 'Area_A/Unit_Line/EM_Conveyor/CM_Scale');
+    assert.equal(pkg[rb.imports[0].file], FILES['plc/blocks/Area_A/Unit_Line/EM_Conveyor/Data.xml']);   // untouched
+    assert.equal(rb.tags.length, 6); assert.equal(rb.stations.length, 2);
+    assert.deepEqual(rb.languages, ['en-GB']); assert.equal(rb.sourceVersion, 'V20');
+    assert.ok(pkg['RUN_ME.bat'].includes('set "MINVER=20"') && pkg['TiaRebuilder/Program.cs'].includes('TiaRebuilder'));
+    assert.ok(!pkg['hardware.json']);   // not the generated-code package
+});
+test('assembling only some blocks exports them plus what they use', () => {
+    const cm = p.controlModules.find(c => c.name === 'CM_Scale')!;
+    const only = { ...p.assembly, tree: [{ id: 'n1', refId: cm.id, level: 'CM' as const, children: [] }] };
+    const rb = JSON.parse(buildTiaPackage(only, p as any)['rebuild.json']);
+    assert.deepEqual(rb.imports.map((i: any) => i.name).sort(), ['Data', 'Scale']);   // "Scale" reads "Data".Raw
+    assert.ok(rb.manual.some((m: string) => /added because the assembled blocks use them: GlobalDB Data \(from EM_Conveyor\)/.test(m)));
+    assert.equal(rb.tags.length, 0);
 });
 
 console.log(`\n${n} TIA tests passed`);

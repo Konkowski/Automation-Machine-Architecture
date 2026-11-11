@@ -344,8 +344,26 @@ export const Layout: React.FC = () => {
     };
     const confirmImportTia = () => {
         if (!tia || tia.step !== 'result') return;
-        loadProject(tia.result.project);
         const s = tia.result.stats;
+        const p = tia.result.project;
+        if (useStore.getState().workspaceKind === 'codebase') {
+            // Code base: the imported blocks are ADDED as Draft; nothing already there is replaced
+            const st = useStore.getState();
+            const add = <T extends { name: string }>(have: T[], incoming: T[]): { list: T[]; added: number } => {
+                const names = new Set(have.map(e => e.name));
+                const fresh = incoming.filter(e => !names.has(e.name));
+                return { list: [...have, ...fresh], added: fresh.length };
+            };
+            const lib = add(st.library, p.library), un = add(st.units, p.units), em = add(st.equipmentModules, p.equipmentModules), cm = add(st.controlModules, p.controlModules);
+            useStore.setState({ library: lib.list, units: un.list, equipmentModules: em.list, controlModules: cm.list, workspaceLoaded: true });
+            const added = lib.added + un.added + em.added + cm.added;
+            const total = p.library.length + p.units.length + p.equipmentModules.length + p.controlModules.length;
+            toast(`${added} block(s) from ${tia.source} added to the code base as Draft${added < total ? `; ${total - added} skipped (a block with the same name already exists)` : ''}.`, 'success');
+            setTia(null);
+            selectTab('arch');
+            return;
+        }
+        loadProject(p);
         toast(`Project created from ${tia.source}: ${s.blocks} blocks, ${s.variables} variables, ${s.io} I/O, ${s.alarms} alarms.`, 'success');
         setTia(null);
         selectTab('project');
@@ -645,12 +663,12 @@ export const Layout: React.FC = () => {
                 title={tia?.step === 'result' ? `Import from TIA Portal — ${tia.source}` : 'Import from TIA Portal'}
                 footer={tia?.step === 'result' ? <>
                     <button className="btn btn-secondary" onClick={() => setTia(null)}>Cancel</button>
-                    <button className="btn btn-primary" onClick={confirmImportTia}>Create project (replaces the workspace)</button>
+                    <button className="btn btn-primary" onClick={confirmImportTia}>{workspaceKind === 'codebase' ? 'Add the blocks to the code base' : 'Create project (replaces the workspace)'}</button>
                 </> : tia?.step === 'choose' ? <button className="btn btn-secondary" onClick={() => setTia(null)}>Cancel</button> : undefined}
             >
                 {tia?.step === 'choose' && (
                     <div style={{ fontSize: '0.85rem' }}>
-                        <p style={{ marginTop: 0 }}>AMA reads the blocks, PLC tags, data types and hardware of a TIA Portal project and builds the machine from them. The TIA project is only read, never changed.</p>
+                        <p style={{ marginTop: 0 }}>AMA reads the blocks, PLC tags, data types and hardware of a TIA Portal project and {workspaceKind === 'codebase' ? 'adds them to the code base as Draft blocks (hardware and topology belong to a machine and are not added)' : 'builds the machine from them'}. The TIA project is only read, never changed.</p>
                         <div className="start-cards" style={{ gridTemplateColumns: '1fr 1fr' }}>
                             <button className="start-card" onClick={tiaFromProject}>
                                 <h3>Read a TIA project</h3>

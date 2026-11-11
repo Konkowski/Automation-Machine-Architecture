@@ -133,6 +133,10 @@ export const CODEBASE_TABS: RibbonTab[] = [
                     { id: 'codebase:save-as', label: 'Save to…', icon: SaveAll, small: true, tip: 'Write the code base to another folder' },
                 ],
             },
+            {
+                label: 'Import from the PLC',
+                cmds: [{ id: 'data:import-tia', label: 'TIA Portal', icon: Download, tip: 'Add the blocks of a TIA Portal project to the code base' }],
+            },
         ],
     },
     {
@@ -172,6 +176,7 @@ export const backstageItems = (kind: WorkspaceKind): BackstageItem[] =>
             { id: 'codebase:open', label: 'Open code base', icon: FolderOpen, desc: 'Opens a code base folder (a Git repository).' },
             { id: 'codebase:save', label: 'Save code base', icon: Save, desc: 'Writes the code base to its folder.' },
             { id: 'codebase:save-as', label: 'Save code base to…', icon: SaveAll, desc: 'Writes the code base to another folder.' },
+            { id: 'data:import-tia', label: 'Import from TIA Portal', icon: Download, desc: 'Adds the blocks of a TIA Portal project to the code base.' },
             { id: 'file:clear', label: 'Clear workspace', icon: Eraser, desc: 'Deletes all unsaved content of this workspace.', sep: true },
             { id: 'settings:users', label: 'Users', icon: Users, desc: 'Management of the users who sign the changes.' },
             ...ADVANCED_ITEMS,

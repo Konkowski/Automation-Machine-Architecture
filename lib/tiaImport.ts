@@ -22,7 +22,7 @@
 // ============================================================
 import type {
     FunctionBlock, Unit, EquipmentModule, ControlModule, AssemblyProject, AssemblyNode,
-    Variable, Alarm, IOSignal, HardwareItem, BlockBase, DataType, AlarmLevel, VariableScope,
+    Variable, Alarm, IOSignal, HardwareItem, BlockBase, DataType, AlarmLevel, VariableScope, TiaObject, TiaOrigin,
 } from '../types/machine';
 import { createEmptyBlock, generateId } from './helpers';
 import { parseXml, kid, kids, find, findAll, mlText, renderScl, renderFlgNet, type XNode } from './tiaXml';
@@ -109,11 +109,12 @@ const humanize = (n: string): string => n.replace(/^.*\./, '').replace(/^(alm|al
 interface Block {
     kind: 'OB' | 'FC' | 'FB' | 'GlobalDB' | 'InstanceDB' | 'ArrayDB';
     name: string; folders: string[]; lang: string; number: string; comment: string;
-    sections: Section[]; code: string; networks: number; instanceOf: string;
+    sections: Section[]; code: string; networks: number; instanceOf: string; xml: string;
+    system?: boolean; technology?: boolean;
 }
 interface Tag { name: string; type: string; address: string; comment: string; table: string }
-interface Udt { name: string; comment: string; members: Member[] }
-interface PlcData { name: string; blocks: Block[]; tags: Tag[]; udts: Udt[] }
+interface Udt { name: string; comment: string; members: Member[]; folders: string[]; xml: string }
+interface PlcData { name: string; version: string; blocks: Block[]; tags: Tag[]; udts: Udt[] }
 
 function readBlock(el: XNode, folders: string[], warnings: string[]): Block {
     const al = kid(el, 'AttributeList');
@@ -150,7 +151,7 @@ function readBlock(el: XNode, folders: string[], warnings: string[]): Block {
     return {
         kind, name, folders, lang, number: kid(al, 'Number')?.text || '', comment: mlText(el, 'Comment'),
         sections: sectionsOf(el), code: parts.filter(Boolean).join('\n\n'), networks,
-        instanceOf: kid(al, 'InstanceOfName')?.text || '',
+        instanceOf: kid(al, 'InstanceOfName')?.text || '', xml: '',
     };
 }
 
@@ -192,6 +193,7 @@ function importHardware(json: string, warnings: string[]): { sbom: HardwareItem[
             firmware: head?.fw || '', quantity: 1,
             notes: isCpu ? 'PLC' : isHmi ? 'HMI panel' : (node?.pnName ? `PROFINET name: ${node.pnName}` : ''),
             ipAddress: node?.ip || '', supplierCode: head?.code || '', manufacturer: head ? 'Siemens' : '',
+            tia: dev,   // the station as it was: used to rebuild it exactly on export
         };
         sbom.push(row);
         // the other modules of the station (I/O cards, power modules...) are grouped by order number
@@ -238,7 +240,7 @@ export function importTia(files: Record<string, string>, sourceName = 'TIA Porta
     // ---- read every file ----
     const plcs = new Map<string, PlcData>();
     const plcOf = (name: string): PlcData => {
-        if (!plcs.has(name)) plcs.set(name, { name, blocks: [], tags: [], udts: [] });
+        if (!plcs.has(name)) plcs.set(name, { name, version: '', blocks: [], tags: [], udts: [] });
         return plcs.get(name)!;
     };
     let hardwareJson = ''; let projectName = '';
@@ -261,16 +263,25 @@ export function importTia(files: Record<string, string>, sourceName = 'TIA Porta
         const el = kids(root).find(c => c.tag.startsWith('SW.'));
         if (!el) continue;
         const segs = path.split('/').slice(0, -1);
-        const k = segs.findIndex(s => /^(blocks|tags|types)$/i.test(s));
+        const k = segs.findIndex(s => /^(blocks|tags|types|system|technology)$/i.test(s));
+        const area = k >= 0 ? segs[k].toLowerCase() : '';
         const plc = plcOf(k > 0 ? segs[k - 1] : 'PLC');
         const folders = k >= 0 ? segs.slice(k + 1) : segs;
         try {
-            if (el.tag.startsWith('SW.Blocks.')) plc.blocks.push(readBlock(el, folders, warnings));
+            plc.version = plc.version || kid(root, 'Engineering')?.attrs.version || '';
+            if (el.tag.startsWith('SW.TechnologicalObjects.')) {
+                const name = kid(kid(el, 'AttributeList'), 'Name')?.text || base.replace(/\.xml$/i, '');
+                plc.blocks.push({
+                    kind: 'InstanceDB', name, folders: [], lang: 'DB', number: '', comment: mlText(el, 'Comment'), sections: [], code: '', networks: 0,
+                    instanceOf: kid(kid(el, 'AttributeList'), 'OfSystemLibElement')?.text || 'technology object', xml: text, technology: true,
+                });
+            }
+            else if (el.tag.startsWith('SW.Blocks.')) plc.blocks.push({ ...readBlock(el, area === 'system' ? [] : folders, warnings), xml: text, system: area === 'system' });
             else if (el.tag === 'SW.Tags.PlcTagTable') plc.tags.push(...readTagTable(el));
             else if (el.tag === 'SW.Types.PlcStruct') {
                 plc.udts.push({
                     name: kid(kid(el, 'AttributeList'), 'Name')?.text || base.replace(/\.xml$/i, ''),
-                    comment: mlText(el, 'Comment'), members: sectionsOf(el).flatMap(s => s.members),
+                    comment: mlText(el, 'Comment'), members: sectionsOf(el).flatMap(s => s.members), folders, xml: text,
                 });
             }
         } catch (e: any) { warnings.push(`${path}: could not be read (${e?.message || e}).`); }
@@ -303,6 +314,10 @@ export function importTia(files: Record<string, string>, sourceName = 'TIA Porta
         stats.blocks += plc.blocks.length;
         const multi = plcs.size > 1;
 
+        // every entity keeps the TIA objects it was made from: the export re-imports them as they are
+        const originOf = (e: any): TiaOrigin => e.tia || (e.tia = { plc: plc.name, version: plc.version, objects: [], tags: [] });
+        const keep = (e: any, o: TiaObject) => { originOf(e).objects.push(o); };
+
         // ---- FBs and UDTs -> library ----
         const fbByName = new Map<string, FunctionBlock>();
         for (const b of plc.blocks.filter(x => x.kind === 'FB')) {
@@ -315,12 +330,14 @@ export function importTia(files: Record<string, string>, sourceName = 'TIA Porta
             }
             fb.code = [`// FB "${b.name}" (${b.lang}), ${b.networks} network(s)`, b.code].filter(Boolean).join('\n');
             stats.fbs++; stats.codeBlocks++; stats.networks += b.networks; stats.variables += fb.variables.length;
+            keep(fb, { kind: 'block', blockKind: 'FB', name: b.name, folders: b.folders, xml: b.xml });
             fbByName.set(b.name, fb);
             library.push(fb);
         }
         for (const u of plc.udts) {
             const fb = make<FunctionBlock>('FB', 'udt', u.name, `[UDT] ${u.comment}`.trim());
             for (const m of flatten(u.members)) fb.variables.push({ id: generateId(), name: m.name, description: m.comment, ...mapType(m.type), scope: 'Local' });
+            keep(fb, { kind: 'type', name: u.name, folders: u.folders, xml: u.xml });
             stats.udts++; stats.variables += fb.variables.length;
             library.push(fb);
         }
@@ -375,7 +392,9 @@ export function importTia(files: Record<string, string>, sourceName = 'TIA Porta
         // folders that only hold other Unit folders (Area / Cell) do not become entities
         const holdsUnits = (folders: string[]): boolean => !levelOfFolder(folders[folders.length - 1] || '') && !folders.some(f => levelOfFolder(f))
             && sorted.some(b => b.folders.length > folders.length && folders.every((f, i) => b.folders[i] === f) && b.folders.slice(folders.length).some(f => levelOfFolder(f) === 'UN'));
+        const floating = sorted.filter(b => b.system || b.technology);   // placed after the code is known
         for (const b of sorted) {
+            if (b.system || b.technology) continue;
             if (b.kind === 'FB') {
                 const ent = b.folders.length && !holdsUnits(b.folders) ? entityFor(b.folders) : rootUnit();
                 const fb = fbByName.get(b.name)!;
@@ -383,6 +402,7 @@ export function importTia(files: Record<string, string>, sourceName = 'TIA Porta
                 continue;
             }
             const ent = b.folders.length && !holdsUnits(b.folders) ? entityFor(b.folders) : rootUnit();
+            keep(ent.e, { kind: 'block', blockKind: b.kind, name: b.name, folders: b.folders, xml: b.xml });
             if (b.kind === 'OB' || b.kind === 'FC') {
                 // the interface (inputs, outputs, temporaries) becomes variables "<block>.<name>", like DB members
                 for (const s of b.sections) {
@@ -429,6 +449,21 @@ export function importTia(files: Record<string, string>, sourceName = 'TIA Porta
         const texts: { ent: Ent; text: string }[] = all.map(ent => ({ ent, text: ent.e.code as string }));
         for (const fb of fbByName.values()) { const o = fbOwner.get(fb.id); if (o) texts.push({ ent: o, text: fb.code }); }
         const count = (text: string, needle: string): number => { let n = 0, i = 0; while ((i = text.indexOf(needle, i)) >= 0) { n++; i += needle.length; } return n; };
+        // instance DBs of timers / counters / instructions and technology objects go with the code that uses them
+        for (const b of floating) {
+            stats.dbs++;
+            const needle = `"${b.name}"`;
+            let owner: Ent | null = null, ownerN = 0;
+            for (const t of texts) { const c = count(t.text, needle); if (c > ownerN) { ownerN = c; owner = t.ent; } }
+            const ent = owner || rootUnit();
+            keep(ent.e, { kind: b.technology ? 'technology' : 'block', blockKind: b.kind, name: b.name, folders: [], system: !!b.system, xml: b.xml });
+            ent.e.variables.push({
+                id: generateId(), name: b.name,
+                description: b.technology ? `Technology object (${b.instanceOf})` : `Instance DB of ${b.instanceOf || 'a system instruction'} (System blocks)`,
+                dataType: 'Other', customDataType: b.instanceOf || 'System', scope: 'Local',
+            } as Variable);
+        }
+
         let unused = 0;
         for (const tag of plc.tags) {
             stats.tags++;
@@ -436,6 +471,7 @@ export function importTia(files: Record<string, string>, sourceName = 'TIA Porta
             let best: Ent | null = null, bestN = 0;
             for (const t of texts) { const n = count(t.text, needle); if (n > bestN) { bestN = n; best = t.ent; } }
             if (!best) { unused++; best = rootUnit(); }
+            originOf(best.e).tags.push({ name: tag.name, type: tag.type, address: tag.address, comment: tag.comment, table: tag.table });
             const t = mapType(tag.type);
             const io = /^%([IQ])/i.exec(tag.address);
             const desc = [tag.comment, tag.table && tag.table !== 'Default tag table' ? `[${tag.table}]` : ''].filter(Boolean).join(' ');
