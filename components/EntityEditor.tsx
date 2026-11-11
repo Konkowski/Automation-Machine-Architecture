@@ -6,7 +6,8 @@ import { useStore } from '../lib/store';
 import { Modal } from './Modal';
 import { toast } from './Toaster';
 import { generateId, calculateRPN, generateFBCallingCode, findEntityUsages } from '../lib/helpers';
-import { releaseIssues, errorsOf } from '../lib/releaseCheck';
+import { releaseBlock } from '../lib/releaseActions';
+import { ReleaseIssues } from './ReleaseIssues';
 import { suggestFor, rpnBand, needsAttention } from '../lib/dfmeaGuide';
 import Editor from '@monaco-editor/react';
 import { ST_LANGUAGE_ID, stLanguageConfig, stTokensProvider, stTheme } from '../lib/stLanguage';
@@ -71,6 +72,10 @@ interface EntityEditorProps {
 
 export const EntityEditor: React.FC<EntityEditorProps> = ({ block, isLibrary = false }) => {
     const tab = useStore(s => s.selectedTab) as TabId;
+    const focusItem = useStore(s => s.focusItem);
+    React.useEffect(() => {
+        if (focusItem) setTimeout(() => document.getElementById(`dfmea-${focusItem}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 120);
+    }, [focusItem, tab]);
     const setTab = useStore(s => s.setTab);
     const updateEntity = useStore(s => s.updateEntity);
     const updateFB = useStore(s => s.updateFB);
@@ -174,12 +179,13 @@ export const EntityEditor: React.FC<EntityEditorProps> = ({ block, isLibrary = f
 
     const setStatus = (s: EntityStatus) => {
         if (s === 'Released') {
-            const st = useStore.getState();
-            const blocking = errorsOf(releaseIssues(block, st));
-            if (blocking.length) {
-                toast(`Cannot release "${block.name}": ${blocking[0].text}${blocking.length > 1 ? ` (+${blocking.length - 1} more, see the Release step)` : ''}`, 'error');
+            const res = releaseBlock(block);
+            if (!res.ok) {
+                toast(`"${block.name}" has ${res.blocking.length} error${res.blocking.length > 1 ? 's' : ''}: see the checks below the status bar (each one shows where it is), or use "Release anyway".`, 'error');
                 return;
             }
+            setUnlocked(false);
+            return;
         }
         rawUpdate({ status: s });
         setUnlocked(false);
@@ -296,6 +302,8 @@ export const EntityEditor: React.FC<EntityEditorProps> = ({ block, isLibrary = f
                     ))}
                 </div>
             </div>
+
+            <ReleaseIssues block={block} />
 
             <div className={locked ? 'entity-locked-content' : ''}>
 
@@ -871,7 +879,7 @@ export const EntityEditor: React.FC<EntityEditorProps> = ({ block, isLibrary = f
                                 </thead>
                                 <tbody>
                                     {block.dfmea.map(d => (
-                                        <tr key={d.id}>
+                                        <tr key={d.id} id={`dfmea-${d.id}`} className={focusItem === d.id ? 'row-focus' : ''}>
                                             <td>
                                                 {d.failureMode}
                                                 {(() => {

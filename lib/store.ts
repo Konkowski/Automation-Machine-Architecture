@@ -52,6 +52,8 @@ interface AMAState {
 
     // --- UI State ---
     selectedNodeId: string | null;
+    /** A row inside the open editor tab to highlight (set when jumping from a release check). */
+    focusItem: string | null;
     selectedTab: TabId;
     sidebarCollapsed: boolean;
     searchQuery: string;
@@ -305,6 +307,7 @@ export const useStore = create<AMAState>((set, get) => {
     parked: {},
     projectFilePath: null,
     selectedNodeId: null,
+    focusItem: null,
     selectedTab: 'info',
     sidebarCollapsed: false,
     searchQuery: '',
@@ -522,7 +525,7 @@ export const useStore = create<AMAState>((set, get) => {
     })),
 
     // ─── Navigation & UI ────────────────────────────────
-    selectNode: (id) => set({ selectedNodeId: id, selectedTab: 'info' }),
+    selectNode: (id) => set({ selectedNodeId: id, selectedTab: 'info', focusItem: null }),
     setTab: (tab) => set({ selectedTab: tab }),
     toggleSidebar: () => set(s => ({ sidebarCollapsed: !s.sidebarCollapsed })),
     setSearchQuery: (q) => set({ searchQuery: q }),

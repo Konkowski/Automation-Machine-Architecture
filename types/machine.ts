@@ -190,6 +190,8 @@ export interface BlockBase {
   currentVersion: string;
   lastModifiedBy: string;
   status?: EntityStatus;  // library lifecycle (default Draft)
+  /** Release checks the Product Owner accepted (with the reason): the block was released anyway. */
+  waivers?: { text: string; reason: string; by: string; date: string }[];
   /** Machine projects: 'codebase' = taken from the code base, 'machine' = exists only on this machine. */
   origin?: 'codebase' | 'machine';
   /** Machine projects: fingerprint of the block as it came from the code base (see lib/deviation.ts). */

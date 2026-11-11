@@ -10,6 +10,8 @@ import { saveCodebase } from '../lib/codebaseActions';
 import { gitAvailable, gitRun, gitEnsureIdentity } from '../lib/gitOps';
 import { toast } from '../components/Toaster';
 import { releaseIssues, errorsOf, type Issue } from '../lib/releaseCheck';
+import { releaseBlock } from '../lib/releaseActions';
+import { ReleaseIssues } from '../components/ReleaseIssues';
 import type { BlockBase, EntityLevel, EntityStatus } from '../types/machine';
 
 const STATUSES: EntityStatus[] = ['Draft', 'In Review', 'Released', 'Deprecated'];
@@ -51,13 +53,12 @@ export const ReleasePage: React.FC = () => {
     const setStatus = (e: BlockBase, status: EntityStatus): boolean => {
         if ((e.status || 'Draft') === status) return true;
         if (status === 'Released') {
-            const st = useStore.getState();
-            const blocking = errorsOf(releaseIssues(e, st));
-            if (blocking.length) {
+            const res = releaseBlock(e);
+            if (!res.ok) {
                 setOpen(e.id);
-                toast(`Cannot release "${e.name}": ${blocking[0].text}${blocking.length > 1 ? ` (+${blocking.length - 1} more)` : ''}`, 'error');
-                return false;
+                toast(`"${e.name}" has ${res.blocking.length} error${res.blocking.length > 1 ? 's' : ''}: see below where each one is, fix it, or release it anyway with a reason.`, 'error');
             }
+            return res.ok;
         }
         updateEntity(e.id, e.level, { status });
         addRevision(e.id, {
@@ -156,7 +157,8 @@ export const ReleasePage: React.FC = () => {
                         {rows.map(e => {
                             const issues = issuesOf.get(e.id) || [];
                             const errs = issues.filter(i => i.severity === 'error').length;
-                            const warns = issues.length - errs;
+                            const accepted = issues.filter(i => i.severity === 'accepted').length;
+                            const warns = issues.length - errs - accepted;
                             return (
                                 <React.Fragment key={e.id}>
                                     <tr>
@@ -164,12 +166,13 @@ export const ReleasePage: React.FC = () => {
                                         <td title={e.description}>{e.name}</td>
                                         <td>v{e.currentVersion}</td>
                                         <td>
-                                            {issues.length === 0
+                                            {issues.length === 0 || (errs === 0 && warns === 0 && accepted === 0)
                                                 ? <span style={{ color: 'var(--green, #3fb950)' }}>Ready</span>
                                                 : <button className="btn btn-ghost btn-sm" onClick={() => setOpen(open === e.id ? null : e.id)}>
                                                     {errs > 0 && <span style={{ color: 'var(--red)' }}>{errs} error{errs > 1 ? 's' : ''}</span>}
                                                     {errs > 0 && warns > 0 && ' · '}
                                                     {warns > 0 && <span style={{ color: 'var(--yellow, #d29922)' }}>{warns} warning{warns > 1 ? 's' : ''}</span>}
+                                                    {accepted > 0 && <span style={{ color: 'var(--text-muted)' }}>{errs + warns > 0 ? ' · ' : ''}{accepted} accepted</span>}
                                                 </button>}
                                         </td>
                                         <td>
@@ -181,9 +184,7 @@ export const ReleasePage: React.FC = () => {
                                     {open === e.id && issues.length > 0 && (
                                         <tr className="release-issues-row">
                                             <td colSpan={5}>
-                                                <ul className="release-issues">
-                                                    {issues.map((i: Issue, k) => <li key={k} className={i.severity}>{i.severity === 'error' ? 'Must fix: ' : 'Check: '}{i.text}</li>)}
-                                                </ul>
+                                                <ReleaseIssues block={e} />
                                             </td>
                                         </tr>
                                     )}

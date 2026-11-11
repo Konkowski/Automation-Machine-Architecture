@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { defaultLibraryFBs, defaultUnits, defaultEMs, defaultCMs, defaultAssembly } from '../lib/defaults';
 import { mergeFromCodebase, isAdjusted, isAssemblable, contentHash } from '../lib/deviation';
 import { releaseIssues, errorsOf, bumpVersion } from '../lib/releaseCheck';
+import { releaseBlock, revokeAcceptance } from '../lib/releaseActions';
 import { suggestFor, blockRisk, componentRisks, needsAttention, rpnBand } from '../lib/dfmeaGuide';
 import { createEmptyBlock } from '../lib/helpers';
 import { useStore } from '../lib/store';
@@ -38,6 +39,33 @@ test('critical open DFMEA blocks release, implemented does not', () => {
     assert.ok(errorsOf(releaseIssues(crit, empty)).some(i => /critical/.test(i.text)));
     const done = { ...base, dfmea: [dfmea({ rpn: 250, status: 'Implemented' })] };
     assert.equal(errorsOf(releaseIssues(done, empty)).length, 0);
+});
+test('each check says where it is', () => {
+    const fb = { ...createEmptyBlock('FB', 'FB_A'), description: 'd', code: 'c', status: 'In Review' };
+    const cm = { ...createEmptyBlock('CM', 'CM_A'), assignedFBs: [fb.id], dfmea: [dfmea({ rpn: 250, id: 'dd1' })] };
+    const byText = (t: RegExp) => releaseIssues(cm, { ...empty, library: [fb] }).find(i => t.test(i.text))!;
+    assert.equal(byText(/No description/).tab, 'info');
+    assert.equal(byText(/No code/).tab, 'code');
+    assert.equal(byText(/release it first/).targetId, fb.id);
+    assert.deepEqual([byText(/critical/).tab, byText(/critical/).itemId], ['dfmea', 'dd1']);
+});
+test('an error can be accepted with a reason: the block is released, the acceptance is kept', () => {
+    const cm = { ...createEmptyBlock('CM', 'CM_A'), status: 'In Review' } as any;   // no description, no code
+    useStore.setState({ workspaceKind: 'codebase', units: [], equipmentModules: [], controlModules: [cm], library: [], activeUser: 'po' } as any);
+    const lists = () => { const s = useStore.getState(); return { library: s.library, units: s.units, equipmentModules: s.equipmentModules, controlModules: s.controlModules } as any; };
+    assert.equal(releaseBlock(cm).ok, false);
+    assert.equal(useStore.getState().controlModules[0].status, 'In Review');
+    assert.equal(releaseBlock(cm, '   ').ok, false);                       // a reason is required
+    assert.equal(releaseBlock(cm, 'Tested on the machine').ok, true);
+    const after = useStore.getState().controlModules[0] as any;
+    assert.equal(after.status, 'Released'); assert.equal(after.currentVersion, '1.0');   // accepting is not an edit
+    assert.equal(after.waivers.length, 2); assert.equal(after.waivers[0].by, 'po');
+    assert.match(after.revisions[after.revisions.length - 1].notes, /accepted 2 checks: Tested on the machine/);
+    const now = releaseIssues(after, lists());
+    assert.ok(now.length === 2 && now.every(i => i.severity === 'accepted' && i.was === 'error' && i.reason === 'Tested on the machine'));
+    assert.equal(errorsOf(now).length, 0);
+    revokeAcceptance(after, now[0].text);
+    assert.equal(errorsOf(releaseIssues(useStore.getState().controlModules[0], lists())).length, 1);
 });
 test('bumpVersion', () => { assert.equal(bumpVersion('1.0'), '1.1'); assert.equal(bumpVersion('2.3.9'), '2.3.10'); });
 
