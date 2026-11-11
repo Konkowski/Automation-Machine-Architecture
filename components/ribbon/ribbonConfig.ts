@@ -74,7 +74,10 @@ export const MACHINE_TABS: RibbonTab[] = [
             },
             {
                 label: 'Import from the PLC',
-                cmds: [{ id: 'data:import-l5x', label: 'Studio 5000 (.L5X)', icon: Download, tip: 'Create a machine project from an .L5X file' }],
+                cmds: [
+                    { id: 'data:import-l5x', label: 'Studio 5000 (.L5X)', icon: Download, tip: 'Create a machine project from an .L5X file' },
+                    { id: 'data:import-tia', label: 'TIA Portal', icon: Download, tip: 'Create a machine project from a TIA Portal project: blocks, tags, I/O, alarms and hardware' },
+                ],
             },
         ],
     },
@@ -181,6 +184,7 @@ export const backstageItems = (kind: WorkspaceKind): BackstageItem[] =>
             { id: 'file:saveAs', label: 'Save as', icon: SaveAll, desc: 'Saves the machine to a new file.' },
             { id: 'machine:link-codebase', label: 'Link a code base', icon: Link2, desc: 'Takes the library from a code base folder.', sep: true },
             { id: 'data:import-l5x', label: 'Import from Studio 5000', icon: Download, desc: 'Creates a new machine project from an .L5X file.' },
+            { id: 'data:import-tia', label: 'Import from TIA Portal', icon: Download, desc: 'Creates a new machine project from a TIA Portal project.' },
             { id: 'data:compare', label: 'Compare projects', icon: GitCompare, route: '/export', desc: 'Compares this machine with another project or with the master library.' },
             { id: 'file:clear', label: 'Clear workspace', icon: Eraser, desc: 'Deletes all unsaved content of this workspace.', sep: true },
             { id: 'settings:users', label: 'Users', icon: Users, desc: 'Management of the users who sign the changes.' },

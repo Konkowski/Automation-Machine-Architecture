@@ -296,3 +296,60 @@ app.on('window-all-closed', () => {
         app.quit();
     }
 });
+
+// ─── Import from TIA Portal ────────────────────────────────
+// Reads every .xml / .json below a folder (a TIA export) into { relative path: text }.
+async function readTree(dir) {
+    const files = {};
+    const walk = async (d, rel) => {
+        for (const ent of await fs.promises.readdir(d, { withFileTypes: true })) {
+            const full = path.join(d, ent.name);
+            const r = rel ? rel + '/' + ent.name : ent.name;
+            if (ent.isDirectory()) { if (!/^(bin|obj)$/i.test(ent.name)) await walk(full, r); }
+            else if (/\.(xml|json)$/i.test(ent.name)) files[r] = await fs.promises.readFile(full, 'utf-8');
+        }
+    };
+    await walk(dir, '');
+    return files;
+}
+
+ipcMain.handle('ama:read-tree', async (event, { dir }) => {
+    try { return { ok: true, files: await readTree(dir) }; }
+    catch (e) { return { ok: false, error: (e && e.message) || String(e) }; }
+});
+
+// Picks a TIA project, runs the read-only extractor (tools/tia-extractor, TIA Openness)
+// and returns the exported files. TIA Portal with Openness and the .NET SDK are required.
+ipcMain.handle('ama:tia-extract', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const picked = await dialog.showOpenDialog(win, {
+        title: 'Choose the TIA Portal project',
+        properties: ['openFile'],
+        filters: [{ name: 'TIA Portal project', extensions: ['ap15', 'ap15_1', 'ap16', 'ap17', 'ap18', 'ap19', 'ap20', 'ap21', 'ap22'] }],
+    });
+    if (picked.canceled || picked.filePaths.length === 0) return { canceled: true };
+    const project = picked.filePaths[0];
+    try {
+        // the tool is built next to its sources: work on a copy in the user's data folder
+        const src = path.join(__dirname, '..', 'tools', 'tia-extractor');
+        const work = path.join(app.getPath('userData'), 'tia-extractor');
+        await fs.promises.mkdir(work, { recursive: true });
+        for (const f of ['Program.cs', 'TiaExtractor.csproj', 'RUN.bat']) await fs.promises.copyFile(path.join(src, f), path.join(work, f));
+        const out = path.join(app.getPath('userData'), 'tia-exports', path.basename(project).replace(/\.[^.]+$/, '') + '_' + Date.now());
+        await fs.promises.mkdir(out, { recursive: true });
+        let log = '';
+        try {
+            // quoted by hand: project paths often contain spaces
+            const res = await execFileP('cmd.exe', ['/d', '/s', '/c', `""${path.join(work, 'RUN.bat')}" "${project}" "${out}""`],
+                { cwd: work, windowsHide: true, windowsVerbatimArguments: true, maxBuffer: 16 * 1024 * 1024, timeout: 30 * 60 * 1000 });
+            log = (res.stdout || '') + (res.stderr || '');
+        } catch (e) {
+            log = ((e && e.stdout) || '') + ((e && e.stderr) || '') || (e && e.message) || String(e);
+            const lines = log.trim().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+            return { ok: false, error: lines.filter(l => /ERROR|FATAL/.test(l)).join(' ') || lines.slice(-2).join(' ') || 'The TIA Portal export failed.', log, project };
+        }
+        return { ok: true, project, dir: out, log, files: await readTree(out) };
+    } catch (e) {
+        return { ok: false, error: (e && e.message) || String(e), project };
+    }
+});

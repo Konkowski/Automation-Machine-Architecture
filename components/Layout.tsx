@@ -20,6 +20,7 @@ import { emptyAssembly } from '../lib/normalize';
 import { registerCommands, runCommandNow, runCommandWhenReady } from '../lib/commands';
 import { Ribbon, Backstage } from './ribbon/Ribbon';
 import { importL5X, type L5xImportResult } from '../lib/l5xImport';
+import { importTia, type TiaImportResult } from '../lib/tiaImport';
 import { ribbonTabs } from './ribbon/ribbonConfig';
 import { openCodebase, saveCodebase, linkCodebase, refreshCodebase } from '../lib/codebaseActions';
 
@@ -296,6 +297,56 @@ export const Layout: React.FC = () => {
             toast(err?.message || 'Unable to read the L5X file.');
         }
     });
+    // ─── Import from TIA Portal ─────────────────────────────
+    // 'choose' = pick how; 'busy' = TIA Portal is exporting; result = preview before replacing the workspace
+    const [tia, setTia] = useState<null | { step: 'choose' | 'busy' } | { step: 'result'; source: string; result: TiaImportResult }>(null);
+    const showTia = (files: Record<string, string>, source: string) => {
+        try { setTia({ step: 'result', source, result: importTia(files, source, getOsUsername() || 'TIA Portal') }); }
+        catch (err: any) { setTia(null); toast(err?.message || 'Unable to read the TIA Portal export.'); }
+    };
+    const tiaFromProject = async () => {
+        const ipc = (window as any).amaIpc;
+        if (!ipc) { toast('Reading a TIA project directly is only available in the desktop app.'); return; }
+        setTia({ step: 'busy' });
+        const res = await ipc.invoke('ama:tia-extract');
+        if (res?.canceled) { setTia({ step: 'choose' }); return; }
+        if (!res?.ok) { setTia({ step: 'choose' }); toast(res?.error || 'The TIA Portal export failed.'); return; }
+        showTia(res.files, String(res.project).split(/[\\/]/).pop() || 'TIA Portal');
+    };
+    const tiaFromFolder = async () => {
+        const ipc = (window as any).amaIpc;
+        if (ipc) {
+            const picked = await ipc.invoke('ama:pick-folder');
+            if (!picked?.dir) return;
+            const res = await ipc.invoke('ama:read-tree', { dir: picked.dir });
+            if (!res?.ok) { toast(res?.error || 'Unable to read the folder.'); return; }
+            showTia(res.files, String(picked.dir).split(/[\\/]/).pop() || 'TIA export');
+            return;
+        }
+        const input = document.createElement('input');
+        input.type = 'file';
+        (input as any).webkitdirectory = true;
+        input.onchange = async (e: any) => {
+            const list: File[] = Array.from(e.target.files || []);
+            const files: Record<string, string> = {};
+            for (const f of list) {
+                if (!/\.(xml|json)$/i.test(f.name)) continue;
+                const rel = ((f as any).webkitRelativePath || f.name).split('/').slice(1).join('/') || f.name;
+                files[rel] = await f.text();
+            }
+            showTia(files, ((list[0] as any)?.webkitRelativePath || 'TIA export').split('/')[0]);
+        };
+        input.click();
+    };
+    const confirmImportTia = () => {
+        if (!tia || tia.step !== 'result') return;
+        loadProject(tia.result.project);
+        const s = tia.result.stats;
+        toast(`Project created from ${tia.source}: ${s.blocks} blocks, ${s.variables} variables, ${s.io} I/O, ${s.alarms} alarms.`, 'success');
+        setTia(null);
+        selectTab('project');
+    };
+
     const confirmImportL5X = () => {
         if (!l5x) return;
         loadProject(l5x.result.project);
@@ -338,6 +389,7 @@ export const Layout: React.FC = () => {
         'machine:link-codebase': linkCodebase,
         'machine:refresh-codebase': refreshCodebase,
         'data:import-l5x': handleImportL5X,
+        'data:import-tia': () => setTia({ step: 'choose' }),
         'data:import-arch': handleImportArchitecture,
         'file:clear': handleClear,
         'view:search': () => setSearchOpen(true),
@@ -578,6 +630,56 @@ export const Layout: React.FC = () => {
                         <div style={{ fontWeight: 600, marginBottom: 6 }}>To check after the import</div>
                         <ul style={{ margin: 0, paddingLeft: 18 }}>
                             {l5x.result.warnings.map((w, i) => <li key={i} style={{ marginBottom: 4 }}>{w}</li>)}
+                        </ul>
+                    </div>
+                )}
+            </Modal>
+
+            <Modal
+                open={!!tia}
+                onClose={() => { if (tia?.step !== 'busy') setTia(null); }}
+                title={tia?.step === 'result' ? `Import from TIA Portal — ${tia.source}` : 'Import from TIA Portal'}
+                footer={tia?.step === 'result' ? <>
+                    <button className="btn btn-secondary" onClick={() => setTia(null)}>Cancel</button>
+                    <button className="btn btn-primary" onClick={confirmImportTia}>Create project (replaces the workspace)</button>
+                </> : tia?.step === 'choose' ? <button className="btn btn-secondary" onClick={() => setTia(null)}>Cancel</button> : undefined}
+            >
+                {tia?.step === 'choose' && (
+                    <div style={{ fontSize: '0.85rem' }}>
+                        <p style={{ marginTop: 0 }}>AMA reads the blocks, PLC tags, data types and hardware of a TIA Portal project and builds the machine from them. The TIA project is only read, never changed.</p>
+                        <div className="start-cards" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                            <button className="start-card" onClick={tiaFromProject}>
+                                <h3>Read a TIA project</h3>
+                                <p>Pick the .ap file. AMA starts TIA Portal in the background and exports everything (a few minutes). Needs TIA Portal with Openness and the .NET SDK on this PC; close the project in TIA first.</p>
+                            </button>
+                            <button className="start-card" onClick={tiaFromFolder}>
+                                <h3>Open an export folder</h3>
+                                <p>A folder already exported by the AMA extractor (tools/tia-extractor), or any folder with the XML exports of blocks and PLC tags.</p>
+                            </button>
+                        </div>
+                    </div>
+                )}
+                {tia?.step === 'busy' && (
+                    <p style={{ fontSize: '0.9rem' }}>TIA Portal is opening the project and exporting it. This takes a few minutes; if TIA Portal asks whether to grant access to "TiaExtractor", answer Yes.</p>
+                )}
+                {tia?.step === 'result' && (
+                    <div style={{ maxHeight: '60vh', overflowY: 'auto', fontSize: '0.85rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 14 }}>
+                            {([
+                                ['Blocks', tia.result.stats.blocks], ['Code blocks', tia.result.stats.codeBlocks], ['Networks', tia.result.stats.networks], ['Data blocks', tia.result.stats.dbs],
+                                ['Function blocks', tia.result.stats.fbs], ['Data types (UDT)', tia.result.stats.udts], ['Variables', tia.result.stats.variables], ['PLC tags', tia.result.stats.tags],
+                                ['I/O signals', tia.result.stats.io], ['Alarms', tia.result.stats.alarms], ['Devices', tia.result.stats.devices],
+                                ['Units / EM / CM', `${tia.result.project.units.length} / ${tia.result.project.equipmentModules.length} / ${tia.result.project.controlModules.length}`],
+                            ] as [string, number | string][]).map(([k, v]) => (
+                                <div key={k} style={{ padding: '6px 10px', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+                                    <div style={{ fontWeight: 700, fontSize: '1.1rem' }}>{v}</div>
+                                    <div style={{ opacity: 0.7 }}>{k}</div>
+                                </div>
+                            ))}
+                        </div>
+                        <div style={{ fontWeight: 600, marginBottom: 6 }}>To check after the import</div>
+                        <ul style={{ margin: 0, paddingLeft: 18 }}>
+                            {tia.result.warnings.map((w, i) => <li key={i} style={{ marginBottom: 4 }}>{w}</li>)}
                         </ul>
                     </div>
                 )}

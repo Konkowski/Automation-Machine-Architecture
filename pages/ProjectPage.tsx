@@ -68,6 +68,11 @@ export const ProjectPage: React.FC = () => {
                             <h3>Import from Studio 5000</h3>
                             <p>Creates a machine from an .L5X file: programs, tags, I/O, alarms and hardware.</p>
                         </button>
+                        <button className="start-card" onClick={() => runCommandWhenReady('data:import-tia')}>
+                            <Download size={30} />
+                            <h3>Import from TIA Portal</h3>
+                            <p>Creates a machine from a TIA Portal project: blocks, tags, I/O, alarms and hardware.</p>
+                        </button>
                     </div>
                 </section>
             )}

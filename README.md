@@ -41,7 +41,10 @@ AMA has two workspaces:
 - **Code base** (for the Product Owner). The reusable ISA-88 library: Unit, Equipment Module, Control Module and Function Block, with code, alarms, I/O, components and DFMEA. It lives in a Git repository that you point to. A block can only be *Released* after it passes the release checks, and the DFMEA shows where blocks and components need attention.
 - **Machine** (for the assembler). Assemble a machine from the code base, adjust it for the customer (instances, parameters, SBOM, network topology), verify it, and export to Studio 5000 (L5X) and TIA Portal, plus the documents.
 
-It can also **import a Studio 5000 `.L5X` project** into a machine.
+It can also **import existing PLC projects** into a machine:
+
+- **Studio 5000**: an `.L5X` file.
+- **TIA Portal**: pick the project file and AMA reads it through TIA Openness (read-only): blocks, PLC tags, data types, I/O, alarms and hardware. LAD/FBD networks are converted to Structured Text so the logic stays readable. Needs TIA Portal with the Openness option and the .NET SDK on the PC. The extractor is in [`tools/tia-extractor`](tools/tia-extractor) and can also be run on its own.
 
 The workflow is four steps: **Machine → Assembly → Analysis → Verify and export**.
 

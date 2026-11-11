@@ -24,7 +24,8 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
-      "assets/**/*"
+      "assets/**/*",
+      "tools/**/*"
     ],
     "win": {
       "target": "nsis"

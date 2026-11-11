@@ -7,7 +7,7 @@ import path from 'node:path';
 const FORBIDDEN = [/tirelli/i, /thiago/i, /soldi/i, /voyant/i, /@gmail\./i, /@tirelli/i, /C:[\\/]Users[\\/]/i];
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'tests', '.git', 'release', 'dist_electron']);
 const SKIP_FILES = new Set(['package-lock.json']);
-const TEXT = /\.(ts|tsx|js|mjs|cjs|json|md|html|css|bat|txt|yml|yaml)$/i;
+const TEXT = /\.(ts|tsx|js|mjs|cjs|json|md|html|css|bat|txt|yml|yaml|cs|csproj)$/i;
 
 const hits: string[] = [];
 const walk = (dir: string) => {
