@@ -29,6 +29,14 @@ export const CODEBASE_DIRS: Record<EntityLevel, string> = {
     FB: 'function-blocks',
 };
 
+/** Older layout (the Git tab's export): still readable, so existing repositories open too. */
+export const LEGACY_DIRS: Record<string, string> = {
+    'software_library/function_blocks': 'library',
+    'physical_hierarchy/units': 'units',
+    'physical_hierarchy/equipment_modules': 'equipmentModules',
+    'physical_hierarchy/control_modules': 'controlModules',
+};
+
 export interface EntityLists {
     library: FunctionBlock[];
     units: Unit[];
@@ -77,6 +85,8 @@ export interface ParsedCodebase {
     info: Omit<CodebaseInfo, 'path'>;
     lists: EntityLists;
     errors: string[];
+    /** How many block files were found (0 = the folder has no code base in it). */
+    recognized: number;
 }
 
 export function parseCodebaseFiles(files: Record<string, string>): ParsedCodebase {
@@ -87,11 +97,13 @@ export function parseCodebaseFiles(files: Record<string, string>): ParsedCodebas
     const target: Record<string, string> = {
         'function-blocks': 'library', 'units': 'units',
         'equipment-modules': 'equipmentModules', 'control-modules': 'controlModules',
+        ...LEGACY_DIRS,
     };
+    let recognized = 0;
     for (const [rel, text] of Object.entries(files)) {
-        const dir = rel.split('/')[0];
-        if (!target[dir]) continue;
-        try { raw[target[dir]].push(JSON.parse(text)); } catch { errors.push(`${rel} is not valid JSON.`); }
+        const dir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '';
+        if (!target[dir] || !rel.endsWith('.json')) continue;
+        try { raw[target[dir]].push(JSON.parse(text)); recognized++; } catch { errors.push(`${rel} is not valid JSON.`); }
     }
     for (const k of Object.keys(raw)) raw[k].sort((a, b) => String(a?.name).localeCompare(String(b?.name)));
     return {
@@ -102,6 +114,7 @@ export function parseCodebaseFiles(files: Record<string, string>): ParsedCodebas
         },
         lists: normalizeEntityListsOnly(raw) as EntityLists,
         errors,
+        recognized,
     };
 }
 
@@ -117,7 +130,7 @@ export async function openCodebaseFolder(): Promise<{ path: string; parsed: Pars
 export async function readCodebaseFolder(dir: string): Promise<ParsedCodebase> {
     const r = ipc();
     if (!r) throw new Error('Only available in the desktop app.');
-    const res = await r.invoke('ama:read-folder', { dir, subdirs: Object.values(CODEBASE_DIRS) });
+    const res = await r.invoke('ama:read-folder', { dir, subdirs: [...Object.values(CODEBASE_DIRS), ...Object.keys(LEGACY_DIRS)] });
     if (!res?.ok) throw new Error(res?.error || 'Unable to read the folder.');
     return parseCodebaseFiles(res.files);
 }

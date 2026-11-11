@@ -75,9 +75,11 @@ export const CodebasePage: React.FC = () => {
                 <div className="cb-path" title={info.path} style={{ marginTop: 12 }}>
                     {info.path || 'No folder yet: it is chosen the first time you save.'}
                 </div>
-                <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
-                    <button
-                        className="btn btn-primary btn-sm"
+                <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => runCommandWhenReady('codebase:open')}>
+                        <FolderOpen size={13} /> Open a code base folder…
+                    </button>
+                    <button className="btn btn-primary btn-sm"
                         disabled={!dirty || !name.trim()}
                         onClick={() => setCodebase({ ...info, name: name.trim(), version: version.trim() || '1.0.0', description: desc })}
                     >Save details</button>

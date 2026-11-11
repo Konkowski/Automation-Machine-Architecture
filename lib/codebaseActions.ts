@@ -38,6 +38,10 @@ export async function openCodebase(): Promise<void> {
         });
         setGitDir(path);
         const n = parsed.lists.units.length + parsed.lists.equipmentModules.length + parsed.lists.controlModules.length + parsed.lists.library.length;
+        if (n === 0) {
+            toast(`No blocks found in ${path}. If this is a new code base, that is fine. Otherwise choose the folder that contains codebase.json (or the units / control-modules folders).`, 'info');
+            return;
+        }
         toast(`Opened code base "${parsed.info.name}": ${n} blocks${parsed.errors.length ? ` (${parsed.errors.length} file(s) skipped)` : ''}.`, parsed.errors.length ? 'info' : 'success');
     } catch (e) { fail(e); }
 }

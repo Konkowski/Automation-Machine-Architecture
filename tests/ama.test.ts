@@ -184,4 +184,15 @@ test('assembling: a code base block must be Released unless adjusted; machine-on
     assert.equal(isAssemblable({ ...base, origin: 'machine', status: 'Draft' }), true);
 });
 
+console.log('opening a code base folder');
+test('reads the current layout and the older Git-export layout', () => {
+    const cm = { ...createEmptyBlock('CM', 'CM_A'), description: 'd', code: 'c' };
+    const { files } = buildCodebaseFiles({ name: 'CB', version: '2.0.0', description: '', path: '' }, { ...empty, controlModules: [cm] });
+    const now = parseCodebaseFiles(files);
+    assert.equal(now.recognized, 1); assert.equal(now.info.version, '2.0.0'); assert.equal(now.lists.controlModules.length, 1);
+    const legacy = parseCodebaseFiles({ 'physical_hierarchy/control_modules/CM_A.json': JSON.stringify(cm), 'software_library/function_blocks/FB_X.json': JSON.stringify(createEmptyBlock('FB', 'FB_X')) });
+    assert.equal(legacy.recognized, 2); assert.equal(legacy.lists.library.length, 1); assert.equal(legacy.lists.controlModules.length, 1);
+    assert.equal(parseCodebaseFiles({}).recognized, 0);
+});
+
 console.log(`\n${n} tests passed`);
